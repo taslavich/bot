@@ -1,12 +1,12 @@
 #!/bin/bash
-cd /root/RTB/bot/twinbid-telegram-bot-admin-payments
+cd /root/RTB/bot/twinbid-telegram-bot-admin-payments/cmd/bot
 
 export PATH=$PATH:/usr/local/go/bin:$HOME/go/bin
 
 echo "$(date): Building bot application..."
-go build -o bot ./cmd/bot
+go build -o main
 
-if [ ! -f ./bot ]; then
+if [ ! -f ./main ]; then
     echo "$(date): ERROR - Build failed"
     exit 1
 fi
