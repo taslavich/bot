@@ -4,7 +4,12 @@ import (
 	"context"
 	"fmt"
 	"html"
+	"io"
 	"log"
+	"mime"
+	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -112,6 +117,26 @@ func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req Campaign
 		}
 	}
 
+	for _, cr := range req.Creatives {
+		caption := creativePhotoCaption(req, cr)
+
+		if cr.ImageFile != nil {
+			if _, err := b.api.SendPhotoFile(ctx, chatID, cr.ImageFile.Filename, cr.ImageFile.ContentType, cr.ImageFile.Data, caption, telegram.ModeHTML); err != nil {
+				log.Printf("send creative uploaded photo failed: %v", err)
+			}
+			continue
+		}
+
+		photoURL := creativePhotoRef(cr)
+		if photoURL == "" {
+			continue
+		}
+
+		if err := b.sendPhotoFromURL(ctx, chatID, photoURL, caption); err != nil {
+			log.Printf("download/send creative photo failed: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -177,30 +202,39 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 		err = b.backend.PatchCampaignStatus(ctx, id, campaignRejectStatus)
 		okText = "Кампания отклонена, статус: " + campaignRejectStatus
 	case "pay:ok":
-		action, found := b.paymentActions.Get(id)
+		actionData, found := b.paymentActions.Get(id)
 		if !found {
-			b.answerCallback(q.ID, "Заявка не найдена. Возможно, бот перезапускался или кнопку уже нажимали.", true)
+			actionData = PaymentAction{}
+		}
+
+		actionData = fillPaymentActionFromMessage(actionData, q.Message.Text)
+		if strings.TrimSpace(actionData.UserID) == "" || strings.TrimSpace(actionData.ID) == "" {
+			b.answerCallback(q.ID, "Не удалось определить user_id или id платежа", true)
 			return
 		}
-		err = b.backend.ApproveTransaction(ctx, action.UserID, action.ID)
-		if err == nil {
-			err = b.backend.PatchProfileBalanceIncrease(ctx, action.UserID, action.TotalBalanceIncrease)
-		}
-		if err == nil {
+
+		err = b.backend.ApproveTransaction(ctx, actionData.UserID, actionData.ID)
+		if err == nil && found {
 			_ = b.paymentActions.Delete(id)
 		}
-		okText = fmt.Sprintf("Платёж подтверждён, затем обязательно выполнен PATCH /api/profile_admin. user_id=%s, transaction_row_id=%s, total_balance_increase=%.2f", action.UserID, action.ID, action.TotalBalanceIncrease)
+		okText = fmt.Sprintf("Платёж подтверждён. user_id=%s, transaction_row_id=%s", actionData.UserID, actionData.ID)
 	case "pay:no":
-		action, found := b.paymentActions.Get(id)
+		actionData, found := b.paymentActions.Get(id)
 		if !found {
-			b.answerCallback(q.ID, "Заявка не найдена. Возможно, бот перезапускался или кнопку уже нажимали.", true)
+			actionData = PaymentAction{}
+		}
+
+		actionData = fillPaymentActionFromMessage(actionData, q.Message.Text)
+		if strings.TrimSpace(actionData.UserID) == "" || strings.TrimSpace(actionData.ID) == "" {
+			b.answerCallback(q.ID, "Не удалось определить user_id или id платежа", true)
 			return
 		}
-		err = b.backend.CancelTransaction(ctx, action.UserID, action.ID)
-		if err == nil {
+
+		err = b.backend.CancelTransaction(ctx, actionData.UserID, actionData.ID)
+		if err == nil && found {
 			_ = b.paymentActions.Delete(id)
 		}
-		okText = "Платёж отклонён. user_id=" + action.UserID + ", transaction_row_id=" + action.ID
+		okText = "Платёж отклонён. user_id=" + actionData.UserID + ", transaction_row_id=" + actionData.ID
 	default:
 		b.answerCallback(q.ID, "Некорректная кнопка", true)
 		return
@@ -424,6 +458,68 @@ func creativePhotoRef(cr CreativePayload) string {
 	return ""
 }
 
+func (b *Bot) sendPhotoFromURL(ctx context.Context, chatID int64, imageURL string, caption string) error {
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, imageURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("download image status=%d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	data, err := io.ReadAll(io.LimitReader(resp.Body, 15*1024*1024))
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("downloaded image is empty")
+	}
+
+	filename := imageFilenameFromURL(imageURL, contentType)
+	_, err = b.api.SendPhotoFile(ctx, chatID, filename, contentType, data, caption, telegram.ModeHTML)
+	return err
+}
+
+func imageFilenameFromURL(rawURL string, contentType string) string {
+	u, err := url.Parse(rawURL)
+	if err == nil {
+		name := path.Base(u.Path)
+		if name != "." && name != "/" && name != "" {
+			return name
+		}
+	}
+
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil {
+		switch mediaType {
+		case "image/jpeg":
+			return "creative.jpg"
+		case "image/png":
+			return "creative.png"
+		case "image/webp":
+			return "creative.webp"
+		case "image/gif":
+			return "creative.gif"
+		}
+	}
+
+	return "creative-image"
+}
+
 func creativeMacros(cr CreativePayload) string {
 	if strings.TrimSpace(cr.Macros) != "" {
 		return cr.Macros
@@ -496,6 +592,37 @@ func line(sb *strings.Builder, key, value string) {
 		value = "—"
 	}
 	sb.WriteString("<b>" + html.EscapeString(key) + ":</b> " + html.EscapeString(value) + "\n")
+}
+
+func fillPaymentActionFromMessage(action PaymentAction, text string) PaymentAction {
+	rowID, userID := parsePaymentIDsFromMessage(text)
+
+	if strings.TrimSpace(action.ID) == "" {
+		action.ID = rowID
+	}
+	if strings.TrimSpace(action.UserID) == "" {
+		action.UserID = userID
+	}
+
+	return action
+}
+
+func parsePaymentIDsFromMessage(text string) (rowID string, userID string) {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.TrimSpace(strings.TrimPrefix(line, "\ufeff"))
+
+		if strings.HasPrefix(line, "id:") {
+			rowID = strings.TrimSpace(strings.TrimPrefix(line, "id:"))
+			continue
+		}
+
+		if strings.HasPrefix(line, "user_id:") {
+			userID = strings.TrimSpace(strings.TrimPrefix(line, "user_id:"))
+			continue
+		}
+	}
+
+	return rowID, userID
 }
 
 func helpText() string {
