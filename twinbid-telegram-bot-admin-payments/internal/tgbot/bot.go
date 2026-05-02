@@ -134,7 +134,10 @@ func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req Campaign
 
 func (b *Bot) handleUpdate(ctx context.Context, upd telegram.Update) {
 	if upd.Message != nil && isCommand(upd.Message.Text) {
-		if b.fixedChatsConfigured() && !b.isFixedChat(upd.Message.Chat.ID) {
+		cmd, _ := parseCommand(upd.Message.Text)
+		log.Printf("received command update_id=%d chat_id=%d user_id=%d command=/%s text=%q", upd.UpdateID, upd.Message.Chat.ID, upd.Message.From.ID, cmd, upd.Message.Text)
+		if cmd != "chatid" && b.fixedChatsConfigured() && !b.isFixedChat(upd.Message.Chat.ID) {
+			log.Printf("skip command update_id=%d chat_id=%d command=/%s: chat is not allowed by fixed chat routing (CAMPAIGNS_CHAT_ID=%d, PAYMENTS_CHAT_ID=%d)", upd.UpdateID, upd.Message.Chat.ID, cmd, b.cfg.CampaignsChatID, b.cfg.PaymentsChatID)
 			return
 		}
 		b.handleCommand(upd.Message)
@@ -142,14 +145,18 @@ func (b *Bot) handleUpdate(ctx context.Context, upd telegram.Update) {
 	}
 	if upd.CallbackQuery != nil {
 		if qmsg := upd.CallbackQuery.Message; qmsg != nil && b.fixedChatsConfigured() && !b.isFixedChat(qmsg.Chat.ID) {
+			log.Printf("skip callback update_id=%d chat_id=%d data=%q: chat is not allowed by fixed chat routing (CAMPAIGNS_CHAT_ID=%d, PAYMENTS_CHAT_ID=%d)", upd.UpdateID, qmsg.Chat.ID, upd.CallbackQuery.Data, b.cfg.CampaignsChatID, b.cfg.PaymentsChatID)
 			return
 		}
+		log.Printf("received callback update_id=%d callback_id=%s from_user_id=%d data=%q", upd.UpdateID, upd.CallbackQuery.ID, upd.CallbackQuery.From.ID, upd.CallbackQuery.Data)
 		b.handleCallback(ctx, upd.CallbackQuery)
 		return
 	}
+	log.Printf("skip update_id=%d: no command or callback payload", upd.UpdateID)
 }
 func (b *Bot) handleCommand(m *telegram.Message) {
 	cmd, _ := parseCommand(m.Text)
+	log.Printf("handle command chat_id=%d user_id=%d command=/%s", m.Chat.ID, m.From.ID, cmd)
 	switch cmd {
 	case "start", "help":
 		b.reply(m.Chat.ID, helpText(), nil)
