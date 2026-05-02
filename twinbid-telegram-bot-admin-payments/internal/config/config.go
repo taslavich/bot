@@ -36,7 +36,7 @@ func getEnvFileNames() []string {
 	return []string{".env.local", ".env", "api.env"}
 }
 
-func Load(ctx context.Context) (Config, error) {
+func Load(ctx context.Context) (*Config, error) {
 	for _, fileName := range getEnvFileNames() {
 		if err := godotenv.Load(fileName); err != nil {
 			log.Printf("error loading %s: %v", fileName, err)
