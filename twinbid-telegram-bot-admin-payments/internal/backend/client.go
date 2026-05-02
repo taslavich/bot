@@ -107,7 +107,7 @@ func (c *Client) PatchProfileBalanceIncrease(ctx context.Context, userID string,
 		"user_id": userID,
 		"balance": totalBalanceIncrease,
 	}
-	return c.doBusiness(ctx, http.MethodPatch, "/api/profile", body, nil)
+	return c.doBusiness(ctx, http.MethodPatch, "/api/profile_admin", body, nil)
 }
 
 func (c *Client) doBusiness(ctx context.Context, method, path string, body any, out any) error {

@@ -92,7 +92,7 @@ func (b *Bot) SendPaymentModeration(ctx context.Context, req PaymentModerationRe
 		ID:                   req.ID,
 		TransactionID:        req.TransactionID,
 		UserID:               req.UserID,
-		TotalBalanceIncrease: req.TotalBalanceIncrease,
+		TotalBalanceIncrease: paymentTotalBalanceIncrease(req),
 	}
 	key, err := b.paymentActions.Put(action)
 	if err != nil {
@@ -121,16 +121,6 @@ func (b *Bot) targetChats(explicit *int64, mode ChatMode) []int64 {
 }
 
 func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req CampaignModerationRequest) error {
-	for _, cr := range req.Creatives {
-		if strings.TrimSpace(cr.ImageURL) == "" {
-			continue
-		}
-		if _, err := b.api.SendPhoto(ctx, chatID, cr.ImageURL, creativeText(cr), telegram.ModeHTML); err != nil {
-			log.Printf("send creative photo failed, fallback to text: %v", err)
-			_, _ = b.api.SendMessage(ctx, chatID, "Не удалось отправить изображение Telegram, ссылка ниже:\n"+creativeText(cr), telegram.ModeHTML, nil)
-		}
-	}
-
 	text := campaignText(req)
 	chunks := splitTelegramText(text, 3800)
 	for i, chunk := range chunks {
@@ -140,6 +130,26 @@ func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req Campaign
 		}
 		if _, err := b.api.SendMessage(ctx, chatID, chunk, telegram.ModeHTML, markup); err != nil {
 			return err
+		}
+	}
+
+	for _, cr := range req.Creatives {
+		caption := creativePhotoCaption(req, cr)
+		if cr.ImageFile != nil {
+			if _, err := b.api.SendPhotoFile(ctx, chatID, cr.ImageFile.Filename, cr.ImageFile.ContentType, cr.ImageFile.Data, caption, telegram.ModeHTML); err != nil {
+				log.Printf("send creative uploaded photo failed, fallback to text: %v", err)
+				_, _ = b.api.SendMessage(ctx, chatID, "Не удалось отправить файл картинки Telegram: <code>"+html.EscapeString(cr.ImageFile.Filename)+"</code>", telegram.ModeHTML, nil)
+			}
+			continue
+		}
+
+		photo := creativePhotoRef(cr)
+		if photo == "" {
+			continue
+		}
+		if _, err := b.api.SendPhoto(ctx, chatID, photo, caption, telegram.ModeHTML); err != nil {
+			log.Printf("send creative photo failed, fallback to text: %v", err)
+			_, _ = b.api.SendMessage(ctx, chatID, "Не удалось отправить изображение Telegram. Ссылка картинки:\n<code>"+html.EscapeString(photo)+"</code>", telegram.ModeHTML, nil)
 		}
 	}
 	return nil
@@ -234,7 +244,7 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 		if err == nil {
 			_ = b.paymentActions.Delete(id)
 		}
-		okText = fmt.Sprintf("Платёж подтверждён, затем обязательно выполнен PATCH /api/profile. user_id=%s, transaction_row_id=%s, total_balance_increase=%.2f", action.UserID, action.ID, action.TotalBalanceIncrease)
+		okText = fmt.Sprintf("Платёж подтверждён, затем обязательно выполнен PATCH /api/profile_admin. user_id=%s, transaction_row_id=%s, total_balance_increase=%.2f", action.UserID, action.ID, action.TotalBalanceIncrease)
 	case "pay:no":
 		action, found := b.paymentActions.Get(id)
 		if !found {
@@ -321,17 +331,28 @@ func paymentKeyboard(actionKey string) telegram.InlineKeyboardMarkup {
 }
 
 func campaignText(req CampaignModerationRequest) string {
+	format := normalizeFormat(req.FormatType)
 	var sb strings.Builder
 	sb.WriteString("🟡 <b>Кампания на модерации</b>\n\n")
 	line(&sb, "campaign_id", req.CampaignID)
-	line(&sb, "campaign_name", req.CampaignName)
-	line(&sb, "format_type", req.FormatType)
+	line(&sb, "format", req.FormatType)
 	line(&sb, "traffic_type", req.TrafficType)
-	line(&sb, "quality_type", req.QualityType)
+	line(&sb, "campaign_name", req.CampaignName)
+
+	switch format {
+	case "banner":
+		line(&sb, "banner_size", bannerSize(req))
+	case "native", "push":
+		line(&sb, "brand_name", req.BrandName)
+	}
+	if strings.TrimSpace(req.QualityType) != "" {
+		line(&sb, "quality_type", req.QualityType)
+	}
+
 	sb.WriteString("\n<b>Пользователь</b>\n")
 	line(&sb, "user_id", req.UserID)
-	line(&sb, "email", req.UserEmail)
-	line(&sb, "telegram", req.UserTelegram)
+	line(&sb, "email", campaignUserEmail(req))
+	line(&sb, "telegram", campaignUserTelegram(req))
 
 	sb.WriteString("\n<b>Креативы</b>\n")
 	if len(req.Creatives) == 0 {
@@ -339,7 +360,7 @@ func campaignText(req CampaignModerationRequest) string {
 	}
 	for i, cr := range req.Creatives {
 		sb.WriteString("\n<b>Креатив #" + strconv.Itoa(i+1) + "</b>\n")
-		creativeLines(&sb, cr)
+		creativeLines(&sb, format, cr)
 	}
 	return sb.String()
 }
@@ -347,23 +368,114 @@ func campaignText(req CampaignModerationRequest) string {
 func creativeText(cr CreativePayload) string {
 	var sb strings.Builder
 	sb.WriteString("<b>Креатив</b>\n")
-	creativeLines(&sb, cr)
+	creativeLines(&sb, "", cr)
 	return sb.String()
 }
 
-func creativeLines(sb *strings.Builder, cr CreativePayload) {
-	line(sb, "id", cr.ID)
+func creativePhotoCaption(req CampaignModerationRequest, cr CreativePayload) string {
+	var sb strings.Builder
+	sb.WriteString("<b>Картинка креатива</b>\n")
+	line(&sb, "campaign_name", req.CampaignName)
+	line(&sb, "creative_name", cr.CreativeName)
+	return sb.String()
+}
+
+func creativeLines(sb *strings.Builder, format string, cr CreativePayload) {
 	line(sb, "creative_name", cr.CreativeName)
-	line(sb, "title", cr.Title)
-	line(sb, "description", cr.Description)
-	line(sb, "link", cr.Link)
-	line(sb, "image_url", cr.ImageURL)
-	if cr.Width != nil {
-		line(sb, "w", strconv.Itoa(*cr.Width))
+	line(sb, "url", creativeURL(cr))
+	line(sb, "macros", creativeMacros(cr))
+
+	switch format {
+	case "popunder":
+		// Для popunder нужны только имя креатива, url и макросы.
+	case "banner":
+		line(sb, "image_file", imageRef(cr))
+	case "native", "push":
+		line(sb, "image_file", imageRef(cr))
+		line(sb, "title", cr.Title)
+		line(sb, "description", cr.Description)
+	default:
+		if cr.ID != "" {
+			line(sb, "id", cr.ID)
+		}
+		if imageRef(cr) != "" {
+			line(sb, "image_file", imageRef(cr))
+		}
+		if cr.Title != "" {
+			line(sb, "title", cr.Title)
+		}
+		if cr.Description != "" {
+			line(sb, "description", cr.Description)
+		}
 	}
-	if cr.Height != nil {
-		line(sb, "h", strconv.Itoa(*cr.Height))
+}
+
+func normalizeFormat(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	s = strings.ReplaceAll(s, "_", "")
+	s = strings.ReplaceAll(s, "-", "")
+	s = strings.ReplaceAll(s, " ", "")
+	switch s {
+	case "popunder", "pop", "попандер":
+		return "popunder"
+	case "banner", "баннер":
+		return "banner"
+	case "native", "натив":
+		return "native"
+	case "push", "inpagepush", "inpage", "пуш":
+		return "push"
+	default:
+		return s
 	}
+}
+
+func bannerSize(req CampaignModerationRequest) string {
+	if strings.TrimSpace(req.BannerSize) != "" {
+		return req.BannerSize
+	}
+	if req.W != nil && req.H != nil {
+		return strconv.Itoa(*req.W) + "x" + strconv.Itoa(*req.H)
+	}
+	return ""
+}
+
+func creativeURL(cr CreativePayload) string {
+	if strings.TrimSpace(cr.URL) != "" {
+		return cr.URL
+	}
+	return cr.Link
+}
+
+func imageRef(cr CreativePayload) string {
+	if cr.ImageFile != nil && strings.TrimSpace(cr.ImageFile.Filename) != "" {
+		return cr.ImageFile.Filename
+	}
+	if strings.TrimSpace(cr.ImageURL) != "" {
+		return cr.ImageURL
+	}
+	if strings.TrimSpace(cr.PresignedS3URL) != "" {
+		return cr.PresignedS3URL
+	}
+	return cr.Name
+}
+
+func creativePhotoRef(cr CreativePayload) string {
+	v := strings.TrimSpace(cr.ImageURL)
+	if v == "" {
+		v = strings.TrimSpace(cr.PresignedS3URL)
+	}
+	low := strings.ToLower(v)
+	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		return v
+	}
+	return ""
+}
+
+func creativeMacros(cr CreativePayload) string {
+	if strings.TrimSpace(cr.Macros) != "" {
+		return cr.Macros
+	}
+	return cr.TrackersMacros
 }
 
 func paymentText(req PaymentModerationRequest) string {
@@ -372,15 +484,57 @@ func paymentText(req PaymentModerationRequest) string {
 	line(&sb, "id", req.ID)
 	line(&sb, "transaction_id", req.TransactionID)
 	line(&sb, "payment_method", req.PaymentMethod)
-	line(&sb, "deposit_amount", fmt.Sprintf("%.2f %s", req.DepositAmount, req.Currency))
-	line(&sb, "bonus_amount", fmt.Sprintf("%.2f", req.BonusAmount))
-	line(&sb, "total_balance_increase", fmt.Sprintf("%.2f %s", req.TotalBalanceIncrease, req.Currency))
-	line(&sb, "promocode_id", req.PromocodeID)
+	line(&sb, "сумма пополнения", fmt.Sprintf("%.2f %s", paymentDepositAmount(req), req.Currency))
+	line(&sb, "бонус", fmt.Sprintf("%.2f %s", req.BonusAmount, req.Currency))
+	line(&sb, "конечная сумма начисления", fmt.Sprintf("%.2f %s", paymentTotalBalanceIncrease(req), req.Currency))
 	line(&sb, "transaction_hash", req.TransactionHash)
+	line(&sb, "promocode_id", req.PromocodeID)
 	line(&sb, "user_id", req.UserID)
-	line(&sb, "email", req.UserEmail)
-	line(&sb, "telegram", req.UserTelegram)
+	line(&sb, "email", paymentUserEmail(req))
+	line(&sb, "telegram", paymentUserTelegram(req))
 	return sb.String()
+}
+
+func paymentDepositAmount(req PaymentModerationRequest) float64 {
+	if req.DepositAmount > 0 {
+		return req.DepositAmount
+	}
+	return req.Amount
+}
+
+func paymentTotalBalanceIncrease(req PaymentModerationRequest) float64 {
+	if req.TotalBalanceIncrease > 0 {
+		return req.TotalBalanceIncrease
+	}
+	return req.FinalAmount
+}
+
+func campaignUserEmail(req CampaignModerationRequest) string {
+	if strings.TrimSpace(req.UserEmail) != "" {
+		return req.UserEmail
+	}
+	return req.Email
+}
+
+func campaignUserTelegram(req CampaignModerationRequest) string {
+	if strings.TrimSpace(req.UserTelegram) != "" {
+		return req.UserTelegram
+	}
+	return req.Telegram
+}
+
+func paymentUserEmail(req PaymentModerationRequest) string {
+	if strings.TrimSpace(req.UserEmail) != "" {
+		return req.UserEmail
+	}
+	return req.Email
+}
+
+func paymentUserTelegram(req PaymentModerationRequest) string {
+	if strings.TrimSpace(req.UserTelegram) != "" {
+		return req.UserTelegram
+	}
+	return req.Telegram
 }
 
 func line(sb *strings.Builder, key, value string) {

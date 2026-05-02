@@ -3,11 +3,16 @@ package server
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"mime/multipart"
 	"net/http"
+	"strings"
 
 	"twinbid-telegram-bot/internal/config"
 	"twinbid-telegram-bot/internal/tgbot"
 )
+
+const maxMultipartMemory = 32 << 20
 
 type Server struct {
 	cfg config.Config
@@ -31,13 +36,13 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) campaignModeration(w http.ResponseWriter, r *http.Request) {
-	var req tgbot.CampaignModerationRequest
-	if err := decodeJSON(r, &req); err != nil {
+	req, err := decodeCampaignModeration(r)
+	if err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if req.CampaignID == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("campaign_id is required"))
+	if err := tgbot.ValidateCampaignModeration(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.bot.SendCampaignModeration(r.Context(), req); err != nil {
@@ -53,16 +58,8 @@ func (s *Server) paymentModeration(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
-	if req.ID == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("id is required; this must be user_transactions.id, not public transaction_id"))
-		return
-	}
-	if req.UserID == "" {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("user_id is required"))
-		return
-	}
-	if req.TotalBalanceIncrease <= 0 {
-		writeError(w, http.StatusBadRequest, fmt.Errorf("total_balance_increase must be positive"))
+	if err := tgbot.ValidatePaymentModeration(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
 		return
 	}
 	if err := s.bot.SendPaymentModeration(r.Context(), req); err != nil {
@@ -80,6 +77,75 @@ func (s *Server) withSecret(next http.HandlerFunc) http.HandlerFunc {
 		}
 		next(w, r)
 	}
+}
+
+func decodeCampaignModeration(r *http.Request) (tgbot.CampaignModerationRequest, error) {
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		return decodeCampaignMultipart(r)
+	}
+
+	var req tgbot.CampaignModerationRequest
+	if err := decodeJSON(r, &req); err != nil {
+		return req, err
+	}
+	return req, nil
+}
+
+func decodeCampaignMultipart(r *http.Request) (tgbot.CampaignModerationRequest, error) {
+	defer r.Body.Close()
+	if err := r.ParseMultipartForm(maxMultipartMemory); err != nil {
+		return tgbot.CampaignModerationRequest{}, err
+	}
+
+	rawPayload := strings.TrimSpace(r.FormValue("payload"))
+	if rawPayload == "" {
+		return tgbot.CampaignModerationRequest{}, fmt.Errorf("multipart field payload is required")
+	}
+
+	var req tgbot.CampaignModerationRequest
+	dec := json.NewDecoder(strings.NewReader(rawPayload))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&req); err != nil {
+		return req, fmt.Errorf("decode payload: %w", err)
+	}
+
+	if r.MultipartForm == nil || len(r.MultipartForm.File) == 0 {
+		return req, nil
+	}
+	for i := range req.Creatives {
+		fieldName := fmt.Sprintf("creative_image_%d", i)
+		file, ok, err := readMultipartFile(r.MultipartForm, fieldName)
+		if err != nil {
+			return req, err
+		}
+		if ok {
+			req.Creatives[i].ImageFile = &file
+		}
+	}
+	return req, nil
+}
+
+func readMultipartFile(form *multipart.Form, fieldName string) (tgbot.UploadedFile, bool, error) {
+	files := form.File[fieldName]
+	if len(files) == 0 {
+		return tgbot.UploadedFile{}, false, nil
+	}
+	fh := files[0]
+	f, err := fh.Open()
+	if err != nil {
+		return tgbot.UploadedFile{}, false, fmt.Errorf("open multipart file %s: %w", fieldName, err)
+	}
+	defer f.Close()
+
+	data, err := io.ReadAll(f)
+	if err != nil {
+		return tgbot.UploadedFile{}, false, fmt.Errorf("read multipart file %s: %w", fieldName, err)
+	}
+	if len(data) == 0 {
+		return tgbot.UploadedFile{}, false, fmt.Errorf("multipart file %s is empty", fieldName)
+	}
+	return tgbot.UploadedFile{Filename: fh.Filename, ContentType: fh.Header.Get("Content-Type"), Data: data}, true, nil
 }
 
 func decodeJSON(r *http.Request, dst any) error {

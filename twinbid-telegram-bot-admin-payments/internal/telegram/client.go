@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -127,6 +130,66 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, photoURL string, c
 		payload["parse_mode"] = parseMode
 	}
 	return requestJSON[Message](ctx, c, http.MethodPost, "/sendPhoto", payload)
+}
+
+func (c *Client) SendPhotoFile(ctx context.Context, chatID int64, filename string, contentType string, data []byte, caption string, parseMode string) (Message, error) {
+	if filename == "" {
+		filename = "creative-image"
+	}
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("chat_id", strconv.FormatInt(chatID, 10))
+	if caption != "" {
+		_ = writer.WriteField("caption", caption)
+	}
+	if parseMode != "" {
+		_ = writer.WriteField("parse_mode", parseMode)
+	}
+
+	partHeader := make(textproto.MIMEHeader)
+	partHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="photo"; filename="%s"`, escapeQuotes(filename)))
+	if contentType != "" {
+		partHeader.Set("Content-Type", contentType)
+	} else {
+		partHeader.Set("Content-Type", "application/octet-stream")
+	}
+	part, err := writer.CreatePart(partHeader)
+	if err != nil {
+		return Message{}, err
+	}
+	if _, err := part.Write(data); err != nil {
+		return Message{}, err
+	}
+	if err := writer.Close(); err != nil {
+		return Message{}, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/sendPhoto", &body)
+	if err != nil {
+		return Message{}, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return Message{}, err
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+
+	var env apiResponse[Message]
+	if err := json.Unmarshal(b, &env); err != nil {
+		return Message{}, fmt.Errorf("telegram status=%d body=%s", resp.StatusCode, string(b))
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !env.OK {
+		return Message{}, fmt.Errorf("telegram status=%d description=%s body=%s", resp.StatusCode, env.Description, string(b))
+	}
+	return env.Result, nil
+}
+
+func escapeQuotes(s string) string {
+	return strings.ReplaceAll(s, `"`, `\"`)
 }
 
 func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackID string, text string, showAlert bool) error {
