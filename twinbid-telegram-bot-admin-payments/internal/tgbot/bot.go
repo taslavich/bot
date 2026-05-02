@@ -100,35 +100,18 @@ func (b *Bot) SendPaymentModeration(ctx context.Context, req PaymentModerationRe
 func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req CampaignModerationRequest) error {
 	text := campaignText(req)
 	chunks := splitTelegramText(text, 3800)
+
 	for i, chunk := range chunks {
 		var markup any
 		if i == len(chunks)-1 {
 			markup = campaignKeyboard(req.CampaignID)
 		}
+
 		if _, err := b.api.SendMessage(ctx, chatID, chunk, telegram.ModeHTML, markup); err != nil {
 			return err
 		}
 	}
 
-	for _, cr := range req.Creatives {
-		caption := creativePhotoCaption(req, cr)
-		if cr.ImageFile != nil {
-			if _, err := b.api.SendPhotoFile(ctx, chatID, cr.ImageFile.Filename, cr.ImageFile.ContentType, cr.ImageFile.Data, caption, telegram.ModeHTML); err != nil {
-				log.Printf("send creative uploaded photo failed, fallback to text: %v", err)
-				_, _ = b.api.SendMessage(ctx, chatID, "Не удалось отправить файл картинки Telegram: <code>"+html.EscapeString(cr.ImageFile.Filename)+"</code>", telegram.ModeHTML, nil)
-			}
-			continue
-		}
-
-		photo := creativePhotoRef(cr)
-		if photo == "" {
-			continue
-		}
-		if _, err := b.api.SendPhoto(ctx, chatID, photo, caption, telegram.ModeHTML); err != nil {
-			log.Printf("send creative photo failed, fallback to text: %v", err)
-			_, _ = b.api.SendMessage(ctx, chatID, "Не удалось отправить изображение Telegram. Ссылка картинки:\n<code>"+html.EscapeString(photo)+"</code>", telegram.ModeHTML, nil)
-		}
-	}
 	return nil
 }
 
