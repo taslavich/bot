@@ -111,6 +111,8 @@ BACKEND_BASE_URL=https://twinbid.io
 BACKEND_ADMIN_EMAIL=...
 BACKEND_ADMIN_PASSWORD=...
 INTERNAL_SECRET=...
+CAMPAIGNS_CHAT_ID=-1001111111111
+PAYMENTS_CHAT_ID=-1002222222222
 ```
 
 Для прода желательно заполнить:
@@ -135,29 +137,22 @@ docker compose up -d --build
 
 ## Команды в Telegram
 
-Добавить бота в нужный чат и написать:
+Маршрутизация больше не задаётся через `/mode`.
+
+Бот всегда отправляет:
 
 ```text
-/mode campaigns
+кампании -> CAMPAIGNS_CHAT_ID
+платежи  -> PAYMENTS_CHAT_ID
 ```
 
-или:
-
-```text
-/mode payments
-```
-
-Проверить chat_id:
+Чтобы узнать id беседы, временно запусти бота без фиксированных chat_id или используй отдельного бота для получения ID, затем пропиши значения в `.env`:
 
 ```text
 /chatid
 ```
 
-Отключить чат:
-
-```text
-/mode off
-```
+Если `CAMPAIGNS_CHAT_ID` / `PAYMENTS_CHAT_ID` заполнены, бот игнорирует команды и кнопки из остальных чатов.
 
 ## Пример JSON: popunder
 
@@ -177,7 +172,7 @@ curl -X POST "http://BOT_HOST:8090/internal/campaigns/moderation" \
       {
         "creative_name": "Pop creative 1",
         "url": "https://example.com/landing?click_id={click_id}",
-        "macros": ["{click_id}", "{site_id}", "{campaign_id}"]
+        "macros": "{click_id},{site_id},{campaign_id}"
       }
     ]
   }'
@@ -199,13 +194,13 @@ curl -X POST "http://BOT_HOST:8090/internal/campaigns/moderation" \
     {
       "creative_name": "Banner 1",
       "url": "https://example.com/landing?click_id={click_id}",
-      "macros": {"click_id":"{click_id}", "site_id":"{site_id}"},
-      "image_file": "https://cdn.example.com/banner-300x250.jpg"
+      "macros": "{click_id},{site_id}",
+      "image_url": "https://cdn.example.com/banner-300x250.jpg"
     },
     {
       "creative_name": "Banner 2",
       "url": "https://example.com/landing2?click_id={click_id}",
-      "macros": ["{click_id}", "{site_id}"],
+      "macros": "{click_id},{site_id}",
       "image_url": "https://cdn.example.com/banner2-300x250.jpg"
     }
   ]
@@ -228,8 +223,8 @@ curl -X POST "http://BOT_HOST:8090/internal/campaigns/moderation" \
     {
       "creative_name": "Native creative 1",
       "url": "https://example.com/landing?click_id={click_id}",
-      "macros": ["{click_id}", "{source}", "{site_id}"],
-      "image_file": "https://cdn.example.com/native.jpg",
+      "macros": "{click_id},{source},{site_id}",
+      "image_url": "https://cdn.example.com/native.jpg",
       "title": "Native title",
       "description": "Native description"
     }
@@ -253,8 +248,8 @@ curl -X POST "http://BOT_HOST:8090/internal/campaigns/moderation" \
     {
       "creative_name": "Push creative 1",
       "url": "https://example.com/landing?click_id={click_id}",
-      "macros": ["{click_id}", "{source}", "{site_id}"],
-      "image_file": "https://cdn.example.com/push-icon.jpg",
+      "macros": "{click_id},{source},{site_id}",
+      "image_url": "https://cdn.example.com/push-icon.jpg",
       "title": "Push title",
       "description": "Push description"
     }
@@ -316,8 +311,8 @@ func NewBotClient(baseURL, internalSecret string) *BotClient {
 type BotCreative struct {
 	CreativeName string `json:"creative_name"`
 	URL          string `json:"url"`
-	Macros       any    `json:"macros,omitempty"`
-	ImageFile    string `json:"image_file,omitempty"`
+	Macros       string `json:"macros,omitempty"`
+	ImageURL     string `json:"image_url,omitempty"`
 	Title        string `json:"title,omitempty"`
 	Description  string `json:"description,omitempty"`
 }
@@ -384,8 +379,8 @@ err := bot.SendCampaignModeration(ctx, botnotify.BotCampaignModerationRequest{
 		{
 			CreativeName: creative.CreativeName,
 			URL:          creative.URL,
-			Macros:       []string{"{click_id}", "{site_id}"},
-			ImageFile:    creative.ImageURL,
+			Macros:       "{click_id},{site_id}",
+			ImageURL:     creative.ImageURL,
 			Title:        creative.Title,
 			Description:  creative.Description,
 		},

@@ -69,23 +69,17 @@ func (b *Bot) StartPolling(ctx context.Context) error {
 }
 
 func (b *Bot) SendCampaignModeration(ctx context.Context, req CampaignModerationRequest) error {
-	chats := b.targetChats(req.ChatID, ModeCampaigns)
-	if len(chats) == 0 {
-		return fmt.Errorf("no chats configured for campaigns mode")
+	chatID := b.cfg.CampaignsChatID
+	if chatID == 0 {
+		return fmt.Errorf("CAMPAIGNS_CHAT_ID is not configured")
 	}
-
-	for _, chatID := range chats {
-		if err := b.sendCampaignToChat(ctx, chatID, req); err != nil {
-			return err
-		}
-	}
-	return nil
+	return b.sendCampaignToChat(ctx, chatID, req)
 }
 
 func (b *Bot) SendPaymentModeration(ctx context.Context, req PaymentModerationRequest) error {
-	chats := b.targetChats(req.ChatID, ModePayments)
-	if len(chats) == 0 {
-		return fmt.Errorf("no chats configured for payments mode")
+	chatID := b.cfg.PaymentsChatID
+	if chatID == 0 {
+		return fmt.Errorf("PAYMENTS_CHAT_ID is not configured")
 	}
 
 	action := PaymentAction{
@@ -99,25 +93,8 @@ func (b *Bot) SendPaymentModeration(ctx context.Context, req PaymentModerationRe
 		return err
 	}
 
-	for _, chatID := range chats {
-		_, err := b.api.SendMessage(ctx, chatID, paymentText(req), telegram.ModeHTML, paymentKeyboard(key))
-		if err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func (b *Bot) targetChats(explicit *int64, mode ChatMode) []int64 {
-	if explicit != nil {
-		return []int64{*explicit}
-	}
-	cfgs := b.modes.ListByMode(mode)
-	out := make([]int64, 0, len(cfgs))
-	for _, c := range cfgs {
-		out = append(out, c.ChatID)
-	}
-	return out
+	_, err = b.api.SendMessage(ctx, chatID, paymentText(req), telegram.ModeHTML, paymentKeyboard(key))
+	return err
 }
 
 func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req CampaignModerationRequest) error {
@@ -157,55 +134,33 @@ func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req Campaign
 
 func (b *Bot) handleUpdate(ctx context.Context, upd telegram.Update) {
 	if upd.Message != nil && isCommand(upd.Message.Text) {
+		if b.fixedChatsConfigured() && !b.isFixedChat(upd.Message.Chat.ID) {
+			return
+		}
 		b.handleCommand(upd.Message)
 		return
 	}
 	if upd.CallbackQuery != nil {
+		if qmsg := upd.CallbackQuery.Message; qmsg != nil && b.fixedChatsConfigured() && !b.isFixedChat(qmsg.Chat.ID) {
+			return
+		}
 		b.handleCallback(ctx, upd.CallbackQuery)
 		return
 	}
 }
-
 func (b *Bot) handleCommand(m *telegram.Message) {
-	cmd, args := parseCommand(m.Text)
+	cmd, _ := parseCommand(m.Text)
 	switch cmd {
 	case "start", "help":
 		b.reply(m.Chat.ID, helpText(), nil)
 	case "chatid":
 		b.reply(m.Chat.ID, fmt.Sprintf("chat_id: <code>%d</code>", m.Chat.ID), nil)
 	case "mode":
-		if m.From == nil || !b.isAllowed(m.From.ID) {
-			b.reply(m.Chat.ID, "Нет прав на изменение режима.", nil)
-			return
-		}
-		arg := strings.ToLower(strings.TrimSpace(args))
-		if arg == "" {
-			if c, ok := b.modes.Get(m.Chat.ID); ok {
-				b.reply(m.Chat.ID, "Текущий режим чата: <b>"+html.EscapeString(string(c.Mode))+"</b>", nil)
-			} else {
-				b.reply(m.Chat.ID, "Для этого чата режим не задан. Используй <code>/mode campaigns</code> или <code>/mode payments</code>.", nil)
-			}
-			return
-		}
-		mode, ok := normalizeMode(arg)
-		if !ok {
-			b.reply(m.Chat.ID, "Неверный режим. Доступно: <code>campaigns</code>, <code>payments</code>, <code>off</code>.", nil)
-			return
-		}
-		if err := b.modes.Set(m.Chat.ID, m.Chat.Title, mode); err != nil {
-			b.reply(m.Chat.ID, "Ошибка сохранения режима: "+html.EscapeString(err.Error()), nil)
-			return
-		}
-		if mode == ModeOff {
-			b.reply(m.Chat.ID, "Режим для этого чата отключён.", nil)
-		} else {
-			b.reply(m.Chat.ID, "Готово. Этот чат теперь работает в режиме: <b>"+html.EscapeString(string(mode))+"</b>.", nil)
-		}
+		b.reply(m.Chat.ID, "Маршрутизация больше не задаётся через /mode. Кампании всегда уходят в <code>CAMPAIGNS_CHAT_ID</code>, платежи — в <code>PAYMENTS_CHAT_ID</code> из .env.", nil)
 	default:
 		b.reply(m.Chat.ID, "Неизвестная команда. Используй <code>/help</code>.", nil)
 	}
 }
-
 func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 	if q.Message == nil {
 		return
@@ -278,6 +233,14 @@ func (b *Bot) isAllowed(userID int64) bool {
 	}
 	_, ok := b.cfg.AllowedTelegramUserIDs[userID]
 	return ok
+}
+
+func (b *Bot) fixedChatsConfigured() bool {
+	return b.cfg.CampaignsChatID != 0 || b.cfg.PaymentsChatID != 0
+}
+
+func (b *Bot) isFixedChat(chatID int64) bool {
+	return chatID != 0 && (chatID == b.cfg.CampaignsChatID || chatID == b.cfg.PaymentsChatID)
 }
 
 func (b *Bot) reply(chatID int64, text string, markup any) {
@@ -548,11 +511,12 @@ func line(sb *strings.Builder, key, value string) {
 func helpText() string {
 	return strings.TrimSpace(`
 Команды:
-/mode campaigns — этот чат принимает кампании на модерацию
-/mode payments — этот чат принимает платежи на модерацию
-/mode off — отключить чат
-/mode — показать текущий режим
-/chatid — показать chat_id
+/chatid — показать chat_id текущей беседы
+/mode — больше не используется для маршрутизации
+
+Маршрутизация фиксированная:
+CAMPAIGNS_CHAT_ID — беседа для кампаний
+PAYMENTS_CHAT_ID — беседа для платежей
 
 Кнопки под заявками дергают backend-ручки TwinBid с авторизацией через bot-admin.
 `)

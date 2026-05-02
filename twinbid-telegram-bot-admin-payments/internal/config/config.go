@@ -21,6 +21,9 @@ type Config struct {
 	ChatStorePath          string
 	PaymentActionStorePath string
 
+	CampaignsChatID int64
+	PaymentsChatID  int64
+
 	AllowedTelegramUserIDs map[int64]struct{}
 }
 
@@ -45,6 +48,8 @@ func Load() (Config, error) {
 		TokenStorePath:         readString("TOKEN_STORE_PATH", "./data/tokens.json", false),
 		ChatStorePath:          readString("CHAT_STORE_PATH", "./data/chats.json", false),
 		PaymentActionStorePath: readString("PAYMENT_ACTION_STORE_PATH", "./data/payment_actions.json", false),
+		CampaignsChatID:        readInt64("CAMPAIGNS_CHAT_ID", 0, false),
+		PaymentsChatID:         readInt64("PAYMENTS_CHAT_ID", 0, false),
 		AllowedTelegramUserIDs: parseAllowedUsers(readString("ALLOWED_TELEGRAM_USER_IDS", "", false)),
 	}
 
@@ -70,6 +75,21 @@ func readString(key, fallback string, required bool) string {
 		return ""
 	}
 	return fallback
+}
+
+func readInt64(key string, fallback int64, required bool) int64 {
+	value := strings.TrimSpace(os.Getenv(key))
+	if value == "" {
+		return fallback
+	}
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		if required {
+			return 0
+		}
+		return fallback
+	}
+	return id
 }
 
 func loadDotEnvFile(filename string) error {
