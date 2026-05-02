@@ -15,11 +15,11 @@ import (
 const maxMultipartMemory = 32 << 20
 
 type Server struct {
-	cfg config.Config
+	cfg *config.Config
 	bot *tgbot.Bot
 }
 
-func New(cfg config.Config, bot *tgbot.Bot) *Server {
+func New(cfg *config.Config, bot *tgbot.Bot) *Server {
 	return &Server{cfg: cfg, bot: bot}
 }
 

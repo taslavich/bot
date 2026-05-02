@@ -24,10 +24,10 @@ type Bot struct {
 	modes          *ModeStore
 	paymentActions *PaymentActionStore
 	backend        *backend.Client
-	cfg            config.Config
+	cfg            *config.Config
 }
 
-func New(cfg config.Config, backendClient *backend.Client, modes *ModeStore) (*Bot, error) {
+func New(cfg *config.Config, backendClient *backend.Client, modes *ModeStore) (*Bot, error) {
 	api, err := telegram.New(cfg.TelegramBotToken)
 	if err != nil {
 		return nil, err

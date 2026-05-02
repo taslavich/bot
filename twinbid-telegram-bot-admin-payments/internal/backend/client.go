@@ -40,7 +40,7 @@ type authResponse struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
-func NewClient(cfg config.Config, store TokenStore) *Client {
+func NewClient(cfg *config.Config, store TokenStore) *Client {
 	return &Client{
 		baseURL:  strings.TrimRight(cfg.BackendBaseURL, "/"),
 		email:    cfg.BackendAdminEmail,

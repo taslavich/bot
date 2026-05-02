@@ -1,131 +1,84 @@
 package config
 
 import (
-	"fmt"
+	"context"
 	"log"
-	"os"
 	"strconv"
 	"strings"
+
+	"github.com/ilyakaznacheev/cleanenv"
+	"github.com/joho/godotenv"
 )
 
 type Config struct {
-	TelegramBotToken string
-	HTTPAddr         string
-	InternalSecret   string
+	TelegramBotToken string `env:"TELEGRAM_BOT_TOKEN" env-required:"true"`
+	HTTPAddr         string `env:"HTTP_ADDR" env-default:":8090"`
 
-	BackendBaseURL       string
-	BackendAdminEmail    string
-	BackendAdminPassword string
+	InternalSecret string `env:"INTERNAL_SECRET" env-default:""`
 
-	TokenStorePath         string
-	ChatStorePath          string
-	PaymentActionStorePath string
+	BackendBaseURL       string `env:"BACKEND_BASE_URL" env-default:"https://twinbid.io"`
+	BackendAdminEmail    string `env:"BACKEND_ADMIN_EMAIL" env-required:"true"`
+	BackendAdminPassword string `env:"BACKEND_ADMIN_PASSWORD" env-required:"true"`
 
-	CampaignsChatID int64
-	PaymentsChatID  int64
+	TokenStorePath         string `env:"TOKEN_STORE_PATH" env-default:"./data/tokens.json"`
+	ChatStorePath          string `env:"CHAT_STORE_PATH" env-default:"./data/chats.json"`
+	PaymentActionStorePath string `env:"PAYMENT_ACTION_STORE_PATH" env-default:"./data/payment_actions.json"`
 
-	AllowedTelegramUserIDs map[int64]struct{}
+	CampaignsChatID int64 `env:"CAMPAIGNS_CHAT_ID" env-default:"0"`
+	PaymentsChatID  int64 `env:"PAYMENTS_CHAT_ID" env-default:"0"`
+
+	AllowedTelegramUserIDs AllowedUserIDs `env:"ALLOWED_TELEGRAM_USER_IDS" env-default:""`
 }
+
+type AllowedUserIDs map[int64]struct{}
 
 func getEnvFileNames() []string {
 	return []string{".env.local", ".env", "api.env"}
 }
 
-func Load() (Config, error) {
+func Load(ctx context.Context) (Config, error) {
 	for _, fileName := range getEnvFileNames() {
-		if err := loadDotEnvFile(fileName); err != nil {
+		if err := godotenv.Load(fileName); err != nil {
 			log.Printf("error loading %s: %v", fileName, err)
 		}
 	}
 
-	cfg := Config{
-		TelegramBotToken:       readString("TELEGRAM_BOT_TOKEN", "", true),
-		HTTPAddr:               readString("HTTP_ADDR", ":8090", false),
-		InternalSecret:         readString("INTERNAL_SECRET", "", false),
-		BackendBaseURL:         strings.TrimRight(readString("BACKEND_BASE_URL", "https://twinbid.io", true), "/"),
-		BackendAdminEmail:      readString("BACKEND_ADMIN_EMAIL", "", true),
-		BackendAdminPassword:   readString("BACKEND_ADMIN_PASSWORD", "", true),
-		TokenStorePath:         readString("TOKEN_STORE_PATH", "./data/tokens.json", false),
-		ChatStorePath:          readString("CHAT_STORE_PATH", "./data/chats.json", false),
-		PaymentActionStorePath: readString("PAYMENT_ACTION_STORE_PATH", "./data/payment_actions.json", false),
-		CampaignsChatID:        readInt64("CAMPAIGNS_CHAT_ID", 0, false),
-		PaymentsChatID:         readInt64("PAYMENTS_CHAT_ID", 0, false),
-		AllowedTelegramUserIDs: parseAllowedUsers(readString("ALLOWED_TELEGRAM_USER_IDS", "", false)),
+	var cfg Config
+	if err := cleanenv.ReadEnv(&cfg); err != nil {
+		return nil, err
 	}
 
-	if cfg.TelegramBotToken == "" {
-		return Config{}, fmt.Errorf("TELEGRAM_BOT_TOKEN is required")
-	}
-	if cfg.BackendBaseURL == "" {
-		return Config{}, fmt.Errorf("BACKEND_BASE_URL is required")
-	}
-	if cfg.BackendAdminEmail == "" || cfg.BackendAdminPassword == "" {
-		return Config{}, fmt.Errorf("BACKEND_ADMIN_EMAIL and BACKEND_ADMIN_PASSWORD are required")
-	}
+	cfg.BackendBaseURL = strings.TrimRight(cfg.BackendBaseURL, "/")
 
-	return cfg, nil
+	return &cfg, nil
 }
 
-func readString(key, fallback string, required bool) string {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value != "" {
-		return value
-	}
-	if required {
-		return ""
-	}
-	return fallback
-}
-
-func readInt64(key string, fallback int64, required bool) int64 {
-	value := strings.TrimSpace(os.Getenv(key))
-	if value == "" {
-		return fallback
-	}
-	id, err := strconv.ParseInt(value, 10, 64)
-	if err != nil {
-		if required {
-			return 0
-		}
-		return fallback
-	}
-	return id
-}
-
-func loadDotEnvFile(filename string) error {
-	data, err := os.ReadFile(filename)
-	if err != nil {
-		return err
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		parts := strings.SplitN(line, "=", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		key := strings.TrimSpace(parts[0])
-		value := strings.Trim(strings.TrimSpace(parts[1]), `"'`)
-		if key != "" {
-			_ = os.Setenv(key, value)
-		}
-	}
-	return nil
-}
-
-func parseAllowedUsers(raw string) map[int64]struct{} {
+func (a *AllowedUserIDs) SetValue(raw string) error {
 	out := make(map[int64]struct{})
+
 	for _, part := range strings.Split(raw, ",") {
 		part = strings.TrimSpace(part)
 		if part == "" {
 			continue
 		}
+
 		id, err := strconv.ParseInt(part, 10, 64)
-		if err == nil {
-			out[id] = struct{}{}
+		if err != nil {
+			return err
 		}
+
+		out[id] = struct{}{}
 	}
-	return out
+
+	*a = out
+	return nil
+}
+
+func (a AllowedUserIDs) Contains(id int64) bool {
+	if len(a) == 0 {
+		return true
+	}
+
+	_, ok := a[id]
+	return ok
 }
