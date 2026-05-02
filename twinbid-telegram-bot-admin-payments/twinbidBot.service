@@ -1,0 +1,21 @@
+[Unit]
+Description=TwinBid Telegram Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=root
+Group=root
+WorkingDirectory=/root/RTB/bot/twinbid-telegram-bot-admin-payments/cmd/bot
+ExecStart=/root/RTB/bot/twinbid-telegram-bot-admin-payments/cmd/bot/main
+Restart=always
+RestartSec=1
+
+EnvironmentFile=/root/RTB/bot/twinbid-telegram-bot-admin-payments/cmd/bot/api.env
+
+StandardOutput=append:/var/log/twinbidBot/bot.log
+StandardError=append:/var/log/twinbidBot/bot.error.log
+SyslogIdentifier=twinbidBot
+
+[Install]
+WantedBy=multi-user.target
