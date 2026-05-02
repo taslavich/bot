@@ -1,0 +1,11 @@
+services:
+  twinbid-telegram-bot:
+    build: .
+    container_name: twinbid-telegram-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./data:/app/data
