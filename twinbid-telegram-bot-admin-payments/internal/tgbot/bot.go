@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	campaignApproveStatus = "active"
+	campaignApproveStatus = "waiting"
 	campaignRejectStatus  = "draft"
 )
 
