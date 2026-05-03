@@ -534,7 +534,7 @@ func paymentText(req PaymentModerationRequest) string {
 	line(&sb, "transaction_id", req.TransactionID)
 	line(&sb, "payment_method", req.PaymentMethod)
 	line(&sb, "сумма пополнения", fmt.Sprintf("%.2f %s", paymentDepositAmount(req), req.Currency))
-	line(&sb, "бонус", fmt.Sprintf("%.2f %s", req.BonusAmount, req.Currency))
+	line(&sb, "бонус", fmt.Sprintf("%.2f%%", req.BonusAmount))
 	line(&sb, "конечная сумма начисления", fmt.Sprintf("%.2f %s", paymentTotalBalanceIncrease(req), req.Currency))
 	line(&sb, "transaction_hash", req.TransactionHash)
 	line(&sb, "promocode_id", req.PromocodeID)
