@@ -39,9 +39,6 @@ func ValidateCampaignModeration(req CampaignModerationRequest) error {
 	if format == "banner" && strings.TrimSpace(bannerSize(req)) == "" {
 		return fmt.Errorf("banner_size or w+h is required for banner format")
 	}
-	if (format == "native" || format == "push") && strings.TrimSpace(req.BrandName) == "" {
-		return fmt.Errorf("brand_name is required for %s format", format)
-	}
 
 	for i, cr := range req.Creatives {
 		prefix := fmt.Sprintf("creatives[%d]", i)
