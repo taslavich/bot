@@ -96,6 +96,38 @@ transaction_hash       — обязательное поле
 
 Важно: `id` в платежном payload — это `user_transactions.id`, а не публичный `transaction_id`.
 
+
+### Произвольное текстовое сообщение
+
+Любой backend-сервис может отправить простую текстовую строку в чат, куда добавлен бот:
+
+```http
+POST /internal/messages/send
+X-Bot-Secret: <INTERNAL_SECRET>
+Content-Type: application/json
+```
+
+Тело запроса:
+
+```json
+{
+  "text": "Текст, который бот отправит в Telegram"
+}
+```
+
+Чат для таких сообщений задаётся один раз в `.env` через `TEXT_MESSAGES_CHAT_ID`. Чтобы узнать id беседы, добавь бота в нужный чат и отправь команду `/chatid`, затем пропиши полученный id в `TEXT_MESSAGES_CHAT_ID`.
+
+Пример curl:
+
+```bash
+curl -X POST "http://BOT_HOST:8090/internal/messages/send" \
+  -H "Content-Type: application/json" \
+  -H "X-Bot-Secret: change_me_long_random_string" \
+  -d '{
+    "text": "Привет! Это тестовое сообщение от backend"
+  }'
+```
+
 ## Настройка
 
 ```bash
@@ -113,6 +145,7 @@ BACKEND_ADMIN_PASSWORD=...
 INTERNAL_SECRET=...
 CAMPAIGNS_CHAT_ID=-1001111111111
 PAYMENTS_CHAT_ID=-1002222222222
+TEXT_MESSAGES_CHAT_ID=-1003333333333
 ```
 
 Для прода желательно заполнить:
@@ -330,8 +363,18 @@ type BotCampaignModerationRequest struct {
 	Creatives    []BotCreative `json:"creatives"`
 }
 
+type BotTextMessageRequest struct {
+	Text string `json:"text"`
+}
+
 func (c *BotClient) SendCampaignModeration(ctx context.Context, req BotCampaignModerationRequest) error {
 	return c.postJSON(ctx, "/internal/campaigns/moderation", req)
+}
+
+func (c *BotClient) SendTextMessage(ctx context.Context, text string) error {
+	return c.postJSON(ctx, "/internal/messages/send", BotTextMessageRequest{
+		Text: text,
+	})
 }
 
 func (c *BotClient) postJSON(ctx context.Context, path string, payload any) error {
@@ -389,6 +432,17 @@ err := bot.SendCampaignModeration(ctx, botnotify.BotCampaignModerationRequest{
 if err != nil {
 	// лучше залогировать, но не ломать создание кампании, если Telegram временно недоступен
 	log.Printf("send campaign moderation to telegram bot failed: %v", err)
+}
+```
+
+
+Пример отправки простой строки в чат Telegram:
+
+```go
+bot := botnotify.NewBotClient("http://127.0.0.1:8090", "change_me_long_random_string")
+
+if err := bot.SendTextMessage(ctx, "Привет! Это сообщение из Go backend"); err != nil {
+	log.Printf("send telegram text message failed: %v", err)
 }
 ```
 

@@ -81,6 +81,21 @@ func (b *Bot) SendCampaignModeration(ctx context.Context, req CampaignModeration
 	return b.sendCampaignToChat(ctx, chatID, req)
 }
 
+func (b *Bot) SendTextMessage(ctx context.Context, req TextMessageRequest) error {
+	chatID := b.cfg.TextMessagesChatID
+	if chatID == 0 {
+		return fmt.Errorf("TEXT_MESSAGES_CHAT_ID is not configured")
+	}
+
+	chunks := splitTelegramText(req.Text, 4096)
+	for _, chunk := range chunks {
+		if _, err := b.api.SendMessage(ctx, chatID, chunk, "", nil); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (b *Bot) SendPaymentModeration(ctx context.Context, req PaymentModerationRequest) error {
 	chatID := b.cfg.PaymentsChatID
 	if chatID == 0 {

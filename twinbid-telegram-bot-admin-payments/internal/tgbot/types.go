@@ -63,3 +63,8 @@ type PaymentModerationRequest struct {
 	PromocodeID          string  `json:"promocode_id"`
 	TransactionHash      string  `json:"transaction_hash"`
 }
+
+// TextMessageRequest describes a plain text message that should be sent to the configured Telegram chat.
+type TextMessageRequest struct {
+	Text string `json:"text"`
+}
