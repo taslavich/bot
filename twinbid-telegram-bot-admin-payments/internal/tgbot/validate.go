@@ -89,3 +89,10 @@ func ValidatePaymentModeration(req PaymentModerationRequest) error {
 	}
 	return nil
 }
+
+func ValidateTextMessage(req TextMessageRequest) error {
+	if strings.TrimSpace(req.Text) == "" {
+		return fmt.Errorf("text is required")
+	}
+	return nil
+}

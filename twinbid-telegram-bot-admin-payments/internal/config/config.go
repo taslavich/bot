@@ -24,8 +24,9 @@ type Config struct {
 	ChatStorePath          string `env:"CHAT_STORE_PATH" env-default:"./data/chats.json"`
 	PaymentActionStorePath string `env:"PAYMENT_ACTION_STORE_PATH" env-default:"./data/payment_actions.json"`
 
-	CampaignsChatID int64 `env:"CAMPAIGNS_CHAT_ID" env-default:"0"`
-	PaymentsChatID  int64 `env:"PAYMENTS_CHAT_ID" env-default:"0"`
+	CampaignsChatID    int64 `env:"CAMPAIGNS_CHAT_ID" env-default:"0"`
+	PaymentsChatID     int64 `env:"PAYMENTS_CHAT_ID" env-default:"0"`
+	TextMessagesChatID int64 `env:"TEXT_MESSAGES_CHAT_ID" env-default:"0"`
 
 	AllowedTelegramUserIDs AllowedUserIDs `env:"ALLOWED_TELEGRAM_USER_IDS" env-default:""`
 }

@@ -28,6 +28,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /health", s.health)
 	mux.HandleFunc("POST /internal/campaigns/moderation", s.withSecret(s.campaignModeration))
 	mux.HandleFunc("POST /internal/payments/moderation", s.withSecret(s.paymentModeration))
+	mux.HandleFunc("POST /internal/messages/send", s.withSecret(s.sendTextMessage))
 	return mux
 }
 
@@ -46,6 +47,23 @@ func (s *Server) campaignModeration(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.bot.SendCampaignModeration(r.Context(), req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true})
+}
+
+func (s *Server) sendTextMessage(w http.ResponseWriter, r *http.Request) {
+	var req tgbot.TextMessageRequest
+	if err := decodeJSON(r, &req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := tgbot.ValidateTextMessage(req); err != nil {
+		writeError(w, http.StatusBadRequest, err)
+		return
+	}
+	if err := s.bot.SendTextMessage(r.Context(), req); err != nil {
 		writeError(w, http.StatusBadRequest, err)
 		return
 	}
