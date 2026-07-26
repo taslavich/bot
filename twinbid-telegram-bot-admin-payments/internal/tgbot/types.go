@@ -11,8 +11,7 @@ type UploadedFile struct {
 type CreativePayload struct {
 	ID             string        `json:"id,omitempty"`
 	CreativeName   string        `json:"creative_name"`
-	URL            string        `json:"url"`
-	Link           string        `json:"link,omitempty"`
+	ADM            string        `json:"adm"`
 	Macros         string        `json:"macros,omitempty"`
 	TrackersMacros string        `json:"trackers_macros,omitempty"`
 	ImageFile      *UploadedFile `json:"-"`

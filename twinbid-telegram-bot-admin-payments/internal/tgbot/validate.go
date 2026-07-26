@@ -45,14 +45,11 @@ func ValidateCampaignModeration(req CampaignModerationRequest) error {
 		if strings.TrimSpace(cr.CreativeName) == "" {
 			return fmt.Errorf("%s.creative_name is required", prefix)
 		}
-		if strings.TrimSpace(creativeURL(cr)) == "" {
-			return fmt.Errorf("%s.url is required", prefix)
+		if strings.TrimSpace(cr.ADM) == "" {
+			return fmt.Errorf("%s.adm is required", prefix)
 		}
 		switch format {
 		case "banner":
-			if strings.TrimSpace(imageRef(cr)) == "" {
-				return fmt.Errorf("%s.image_file or image_url is required for banner format", prefix)
-			}
 		case "native", "push":
 			if strings.TrimSpace(imageRef(cr)) == "" {
 				return fmt.Errorf("%s.image_file or image_url is required for %s format", prefix, format)

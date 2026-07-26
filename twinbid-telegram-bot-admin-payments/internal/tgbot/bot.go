@@ -384,12 +384,12 @@ func creativePhotoCaption(req CampaignModerationRequest, cr CreativePayload) str
 
 func creativeLines(sb *strings.Builder, format string, cr CreativePayload) {
 	line(sb, "creative_name", cr.CreativeName)
-	line(sb, "url", creativeURL(cr))
+	line(sb, "adm", creativeADM(cr))
 	line(sb, "macros", creativeMacros(cr))
 
 	switch format {
 	case "popunder":
-		// Для popunder нужны только имя креатива, url и макросы.
+		// Для popunder нужны только имя креатива, adm и макросы.
 	case "banner":
 		line(sb, "image_file", imageRef(cr))
 	case "native", "push":
@@ -441,11 +441,8 @@ func bannerSize(req CampaignModerationRequest) string {
 	return ""
 }
 
-func creativeURL(cr CreativePayload) string {
-	if strings.TrimSpace(cr.URL) != "" {
-		return cr.URL
-	}
-	return cr.Link
+func creativeADM(cr CreativePayload) string {
+	return cr.ADM
 }
 
 func imageRef(cr CreativePayload) string {
