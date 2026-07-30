@@ -260,7 +260,10 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 
 	if err != nil {
 		if message, ok := moderationConflictMessage(err); ok && entity == "cmp" {
-			b.answerCallback(q.ID, message, true)
+			// Stop the Telegram callback spinner without showing a toast or alert.
+			b.answerCallback(q.ID, "", false)
+			b.removeButtons(q.Message.Chat.ID, q.Message.MessageID)
+			b.reply(q.Message.Chat.ID, "⚠️ "+html.EscapeString(message), nil)
 			return
 		}
 		b.answerCallback(q.ID, "Ошибка", true)

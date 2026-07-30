@@ -195,8 +195,10 @@ func escapeQuotes(s string) string {
 func (c *Client) AnswerCallbackQuery(ctx context.Context, callbackID string, text string, showAlert bool) error {
 	payload := map[string]any{
 		"callback_query_id": callbackID,
-		"text":              text,
-		"show_alert":        showAlert,
+	}
+	if strings.TrimSpace(text) != "" {
+		payload["text"] = text
+		payload["show_alert"] = showAlert
 	}
 	_, err := requestJSON[json.RawMessage](ctx, c, http.MethodPost, "/answerCallbackQuery", payload)
 	return err
