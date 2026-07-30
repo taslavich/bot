@@ -21,12 +21,13 @@ type TokenStore interface {
 }
 
 type Client struct {
-	baseURL  string
-	email    string
-	password string
-	store    TokenStore
-	http     *http.Client
-	mu       sync.Mutex
+	baseURL        string
+	internalSecret string
+	email          string
+	password       string
+	store          TokenStore
+	http           *http.Client
+	mu             sync.Mutex
 }
 
 type apiEnvelope[T any] struct {
@@ -40,12 +41,22 @@ type authResponse struct {
 	RefreshToken string `json:"refresh_token"`
 }
 
+type APIError struct {
+	Status  int
+	Message string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("backend status=%d error=%s", e.Status, e.Message)
+}
+
 func NewClient(cfg *config.Config, store TokenStore) *Client {
 	return &Client{
-		baseURL:  strings.TrimRight(cfg.BackendBaseURL, "/"),
-		email:    cfg.BackendAdminEmail,
-		password: cfg.BackendAdminPassword,
-		store:    store,
+		baseURL:        strings.TrimRight(cfg.BackendBaseURL, "/"),
+		internalSecret: cfg.InternalSecret,
+		email:          cfg.BackendAdminEmail,
+		password:       cfg.BackendAdminPassword,
+		store:          store,
 		http: &http.Client{
 			Timeout: 20 * time.Second,
 		},
@@ -66,8 +77,21 @@ func (c *Client) EnsureLoggedIn(ctx context.Context) error {
 	return c.loginLocked(ctx)
 }
 
-func (c *Client) PatchCampaignStatus(ctx context.Context, campaignID, status string) error {
-	return c.doBusiness(ctx, http.MethodPatch, "/api/campaigns/"+campaignID, map[string]string{"status": status}, nil)
+func (c *Client) ModerateCampaign(ctx context.Context, campaignID, decision string) error {
+	campaignID = strings.TrimSpace(campaignID)
+	decision = strings.TrimSpace(decision)
+	if campaignID == "" {
+		return fmt.Errorf("campaign_id is required")
+	}
+	if decision != "approve" && decision != "reject" {
+		return fmt.Errorf("invalid moderation decision %q", decision)
+	}
+
+	raw, err := json.Marshal(map[string]string{"decision": decision})
+	if err != nil {
+		return err
+	}
+	return c.doInternal(ctx, http.MethodPost, "/internal/campaigns/"+campaignID+"/moderation", raw, nil)
 }
 
 func (c *Client) ApproveTransaction(ctx context.Context, userID, id string) error {
@@ -108,6 +132,30 @@ func (c *Client) PatchProfileBalanceIncrease(ctx context.Context, userID string,
 		"balance": totalBalanceIncrease,
 	}
 	return c.doBusiness(ctx, http.MethodPatch, "/api/profile_admin", body, nil)
+}
+
+func (c *Client) doInternal(ctx context.Context, method, path string, rawBody []byte, out any) error {
+	var body io.Reader
+	if method != http.MethodGet && method != http.MethodDelete {
+		body = bytes.NewReader(rawBody)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, c.baseURL+path, body)
+	if err != nil {
+		return err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	req.Header.Set("X-Bot-Secret", c.internalSecret)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	return decodeBackendResponse(resp.StatusCode, respBody, out)
 }
 
 func (c *Client) doBusiness(ctx context.Context, method, path string, body any, out any) error {
@@ -250,7 +298,7 @@ func decodeBackendResponse(status int, body []byte, out any) error {
 		if status >= 200 && status < 300 {
 			return nil
 		}
-		return fmt.Errorf("backend status=%d empty body", status)
+		return &APIError{Status: status, Message: "empty body"}
 	}
 
 	if out == nil {
@@ -259,12 +307,12 @@ func decodeBackendResponse(status int, body []byte, out any) error {
 			if status >= 200 && status < 300 && env.Success {
 				return nil
 			}
-			return fmt.Errorf("backend status=%d error=%s body=%s", status, env.ErrorMsg, string(body))
+			return &APIError{Status: status, Message: env.ErrorMsg}
 		}
 		if status >= 200 && status < 300 {
 			return nil
 		}
-		return fmt.Errorf("backend status=%d body=%s", status, string(body))
+		return &APIError{Status: status, Message: string(body)}
 	}
 
 	var env apiEnvelope[json.RawMessage]
@@ -272,7 +320,7 @@ func decodeBackendResponse(status int, body []byte, out any) error {
 		return fmt.Errorf("decode backend response: %w; status=%d body=%s", err, status, string(body))
 	}
 	if status < 200 || status >= 300 || !env.Success {
-		return fmt.Errorf("backend status=%d error=%s body=%s", status, env.ErrorMsg, string(body))
+		return &APIError{Status: status, Message: env.ErrorMsg}
 	}
 	if len(env.Data) == 0 || string(env.Data) == "null" {
 		return nil

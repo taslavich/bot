@@ -52,14 +52,21 @@ user_telegram — необязательное поле, также поддер
 
 В Telegram-сообщении эти поля выводятся отдельным блоком `Пользователь` для любого формата: popunder, banner, native, push.
 
-Кнопки кампании:
+Кнопки кампании вызывают защищённый endpoint backend:
 
-```text
-Одобрить  -> PATCH /api/campaigns/{campaign_id} {"status":"active"}
-Отклонить -> PATCH /api/campaigns/{campaign_id} {"status":"draft"}
+```http
+POST /internal/campaigns/{campaign_id}/moderation
+X-Bot-Secret: <INTERNAL_SECRET>
 ```
 
-Статусы `active` и `draft` зашиты в коде, из `.env` не читаются.
+```text
+Одобрить  -> {"decision":"approve"} -> moderation -> waiting
+Отклонить -> {"decision":"reject"}  -> moderation -> draft
+```
+
+Если пользователь уже отменил модерацию и статус стал `draft`, backend возвращает
+`409 Conflict`, а бот показывает всплывающее сообщение
+`Модерация уже отменена пользователем`. Кнопки при этом не удаляются.
 
 ### Платежи
 

@@ -2,6 +2,7 @@ package tgbot
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -20,8 +21,10 @@ import (
 )
 
 const (
-	campaignApproveStatus = "waiting"
-	campaignRejectStatus  = "draft"
+	campaignApproveStatus   = "waiting"
+	campaignRejectStatus    = "draft"
+	campaignApproveDecision = "approve"
+	campaignRejectDecision  = "reject"
 )
 
 type Bot struct {
@@ -211,10 +214,10 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 	var okText string
 	switch entity + ":" + action {
 	case "cmp:ok":
-		err = b.backend.PatchCampaignStatus(ctx, id, campaignApproveStatus)
+		err = b.backend.ModerateCampaign(ctx, id, campaignApproveDecision)
 		okText = "Кампания одобрена, статус: " + campaignApproveStatus
 	case "cmp:no":
-		err = b.backend.PatchCampaignStatus(ctx, id, campaignRejectStatus)
+		err = b.backend.ModerateCampaign(ctx, id, campaignRejectDecision)
 		okText = "Кампания отклонена, статус: " + campaignRejectStatus
 	case "pay:ok":
 		actionData, found := b.paymentActions.Get(id)
@@ -256,6 +259,10 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 	}
 
 	if err != nil {
+		if message, ok := moderationConflictMessage(err); ok && entity == "cmp" {
+			b.answerCallback(q.ID, message, true)
+			return
+		}
 		b.answerCallback(q.ID, "Ошибка", true)
 		b.reply(q.Message.Chat.ID, "❌ Ошибка действия: <code>"+html.EscapeString(err.Error())+"</code>", nil)
 		return
@@ -264,6 +271,18 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 	b.answerCallback(q.ID, "Готово", false)
 	b.removeButtons(q.Message.Chat.ID, q.Message.MessageID)
 	b.reply(q.Message.Chat.ID, "✅ "+html.EscapeString(okText)+"\nID: <code>"+html.EscapeString(id)+"</code>", nil)
+}
+
+func moderationConflictMessage(err error) (string, bool) {
+	var apiErr *backend.APIError
+	if !errors.As(err, &apiErr) || apiErr.Status != http.StatusConflict {
+		return "", false
+	}
+	message := strings.TrimSpace(apiErr.Message)
+	if message == "" {
+		message = "Кампания больше не находится на модерации"
+	}
+	return message, true
 }
 
 func (b *Bot) isAllowed(userID int64) bool {
