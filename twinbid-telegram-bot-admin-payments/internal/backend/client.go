@@ -91,7 +91,7 @@ func (c *Client) ModerateCampaign(ctx context.Context, campaignID, decision stri
 	if err != nil {
 		return err
 	}
-	return c.doInternal(ctx, http.MethodPost, "/internal/campaigns/"+campaignID+"/moderation", raw, nil)
+	return c.doInternal(ctx, http.MethodPost, "/api/internal/campaigns/"+campaignID+"/moderation", raw, nil)
 }
 
 func (c *Client) ApproveTransaction(ctx context.Context, userID, id string) error {

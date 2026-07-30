@@ -55,7 +55,7 @@ user_telegram — необязательное поле, также поддер
 Кнопки кампании вызывают защищённый endpoint backend:
 
 ```http
-POST /internal/campaigns/{campaign_id}/moderation
+POST /api/internal/campaigns/{campaign_id}/moderation
 X-Bot-Secret: <INTERNAL_SECRET>
 ```
 

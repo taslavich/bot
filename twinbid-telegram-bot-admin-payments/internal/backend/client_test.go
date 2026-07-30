@@ -36,7 +36,7 @@ func TestModerateCampaignUsesInternalEndpointAndSecret(t *testing.T) {
 		t.Fatalf("ModerateCampaign() error = %v", err)
 	}
 
-	if gotPath != "/internal/campaigns/campaign-1/moderation" {
+	if gotPath != "/api/internal/campaigns/campaign-1/moderation" {
 		t.Fatalf("path = %q", gotPath)
 	}
 	if gotSecret != "shared-secret" {
