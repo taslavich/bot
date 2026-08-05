@@ -289,11 +289,7 @@ func moderationConflictMessage(err error) (string, bool) {
 }
 
 func (b *Bot) isAllowed(userID int64) bool {
-	if len(b.cfg.AllowedTelegramUserIDs) == 0 {
-		return true
-	}
-	_, ok := b.cfg.AllowedTelegramUserIDs[userID]
-	return ok
+	return b.cfg.AllowedTelegramUserIDs.Contains(userID)
 }
 
 func (b *Bot) fixedChatsConfigured() bool {

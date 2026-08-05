@@ -1,6 +1,7 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -89,7 +90,9 @@ func (s *Server) paymentModeration(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) withSecret(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.cfg.InternalSecret != "" && r.Header.Get("X-Bot-Secret") != s.cfg.InternalSecret {
+		provided := r.Header.Get("X-Bot-Secret")
+		if s.cfg.InternalSecret == "" ||
+			subtle.ConstantTimeCompare([]byte(provided), []byte(s.cfg.InternalSecret)) != 1 {
 			writeError(w, http.StatusUnauthorized, fmt.Errorf("invalid X-Bot-Secret"))
 			return
 		}

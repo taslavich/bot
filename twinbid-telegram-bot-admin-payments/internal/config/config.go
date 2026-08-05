@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"strconv"
 	"strings"
@@ -14,7 +15,7 @@ type Config struct {
 	TelegramBotToken string `env:"TELEGRAM_BOT_TOKEN" env-required:"true"`
 	HTTPAddr         string `env:"HTTP_ADDR" env-default:":8090"`
 
-	InternalSecret string `env:"INTERNAL_SECRET" env-default:""`
+	InternalSecret string `env:"INTERNAL_SECRET" env-required:"true"`
 
 	BackendBaseURL       string `env:"BACKEND_BASE_URL" env-default:"https://twinbid.io"`
 	BackendAdminEmail    string `env:"BACKEND_ADMIN_EMAIL" env-required:"true"`
@@ -28,7 +29,7 @@ type Config struct {
 	PaymentsChatID     int64 `env:"PAYMENTS_CHAT_ID" env-default:"0"`
 	TextMessagesChatID int64 `env:"TEXT_MESSAGES_CHAT_ID" env-default:"0"`
 
-	AllowedTelegramUserIDs AllowedUserIDs `env:"ALLOWED_TELEGRAM_USER_IDS" env-default:""`
+	AllowedTelegramUserIDs AllowedUserIDs `env:"ALLOWED_TELEGRAM_USER_IDS" env-required:"true"`
 }
 
 type AllowedUserIDs map[int64]struct{}
@@ -50,6 +51,13 @@ func Load(ctx context.Context) (*Config, error) {
 	}
 
 	cfg.BackendBaseURL = strings.TrimRight(cfg.BackendBaseURL, "/")
+	cfg.InternalSecret = strings.TrimSpace(cfg.InternalSecret)
+	if cfg.InternalSecret == "" {
+		return nil, fmt.Errorf("INTERNAL_SECRET is required")
+	}
+	if len(cfg.AllowedTelegramUserIDs) == 0 {
+		return nil, fmt.Errorf("ALLOWED_TELEGRAM_USER_IDS must contain at least one Telegram user ID")
+	}
 
 	return &cfg, nil
 }
@@ -76,10 +84,6 @@ func (a *AllowedUserIDs) SetValue(raw string) error {
 }
 
 func (a AllowedUserIDs) Contains(id int64) bool {
-	if len(a) == 0 {
-		return true
-	}
-
 	_, ok := a[id]
 	return ok
 }

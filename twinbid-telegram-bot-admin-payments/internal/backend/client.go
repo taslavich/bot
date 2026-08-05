@@ -118,22 +118,6 @@ func (c *Client) CancelTransaction(ctx context.Context, userID, id string) error
 	return c.doBusinessInternal(ctx, http.MethodPost, "/api/transactions/"+id+"/cancel_admin", map[string]string{"user_id": userID}, nil)
 }
 
-func (c *Client) PatchProfileBalanceIncrease(ctx context.Context, userID string, totalBalanceIncrease float64) error {
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return fmt.Errorf("user_id is required for profile patch")
-	}
-	if totalBalanceIncrease <= 0 {
-		return fmt.Errorf("total_balance_increase must be positive for profile patch")
-	}
-
-	body := map[string]any{
-		"user_id": userID,
-		"balance": totalBalanceIncrease,
-	}
-	return c.doBusiness(ctx, http.MethodPatch, "/api/profile_admin", body, nil)
-}
-
 func (c *Client) doInternal(ctx context.Context, method, path string, rawBody []byte, out any) error {
 	var body io.Reader
 	if method != http.MethodGet && method != http.MethodDelete {
@@ -156,20 +140,6 @@ func (c *Client) doInternal(ctx context.Context, method, path string, rawBody []
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
 	return decodeBackendResponse(resp.StatusCode, respBody, out)
-}
-
-func (c *Client) doBusiness(ctx context.Context, method, path string, body any, out any) error {
-	var raw []byte
-	var err error
-	if body != nil {
-		raw, err = json.Marshal(body)
-		if err != nil {
-			return err
-		}
-	} else {
-		raw = []byte(`{}`)
-	}
-	return c.doBusinessRaw(ctx, method, path, raw, out)
 }
 
 func (c *Client) doBusinessInternal(ctx context.Context, method, path string, body any, out any) error {
@@ -209,47 +179,12 @@ func (c *Client) doBusinessRawWithSecret(ctx context.Context, method, path strin
 	return decodeBackendResponse(status, respBody, out)
 }
 
-func (c *Client) doBusinessRaw(ctx context.Context, method, path string, rawBody []byte, out any) error {
-	if err := c.EnsureLoggedIn(ctx); err != nil {
-		return err
-	}
-
-	status, respBody, err := c.sendWithCurrentAccess(ctx, method, path, rawBody)
-	if err != nil {
-		return err
-	}
-	if status != http.StatusUnauthorized {
-		return decodeBackendResponse(status, respBody, out)
-	}
-
-	if err := c.refreshOrLogin(ctx); err != nil {
-		return err
-	}
-	status, respBody, err = c.sendWithCurrentAccess(ctx, method, path, rawBody)
-	if err != nil {
-		return err
-	}
-	return decodeBackendResponse(status, respBody, out)
-}
-
-func (c *Client) sendWithCurrentAccess(ctx context.Context, method, path string, rawBody []byte) (int, []byte, error) {
-	tokens, err := c.store.Load()
-	if err != nil {
-		return 0, nil, fmt.Errorf("load tokens: %w", err)
-	}
-	return c.send(ctx, method, path, tokens.AccessToken, rawBody)
-}
-
 func (c *Client) sendWithCurrentAccessAndSecret(ctx context.Context, method, path string, rawBody []byte) (int, []byte, error) {
 	tokens, err := c.store.Load()
 	if err != nil {
 		return 0, nil, fmt.Errorf("load tokens: %w", err)
 	}
 	return c.sendWithBotSecret(ctx, method, path, tokens.AccessToken, rawBody)
-}
-
-func (c *Client) send(ctx context.Context, method, path, accessToken string, rawBody []byte) (int, []byte, error) {
-	return c.sendAuthorized(ctx, method, path, accessToken, rawBody, false)
 }
 
 func (c *Client) sendWithBotSecret(ctx context.Context, method, path, accessToken string, rawBody []byte) (int, []byte, error) {
