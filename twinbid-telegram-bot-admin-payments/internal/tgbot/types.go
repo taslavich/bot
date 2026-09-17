@@ -40,6 +40,8 @@ type CampaignModerationRequest struct {
 	Email        string            `json:"email,omitempty"`
 	UserTelegram string            `json:"user_telegram,omitempty"`
 	Telegram     string            `json:"telegram,omitempty"`
+	RTB          bool              `json:"rtb"`
+	DSPLink      string            `json:"dsp_link,omitempty"`
 	Creatives    []CreativePayload `json:"creatives"`
 }
 

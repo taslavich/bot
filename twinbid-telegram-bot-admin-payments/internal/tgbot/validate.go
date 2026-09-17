@@ -24,7 +24,11 @@ func ValidateCampaignModeration(req CampaignModerationRequest) error {
 	if strings.TrimSpace(campaignUserEmail(req)) == "" {
 		return fmt.Errorf("user_email or email is required")
 	}
-	if len(req.Creatives) == 0 {
+	if req.RTB {
+		if strings.TrimSpace(req.DSPLink) == "" {
+			return fmt.Errorf("dsp_link is required for rtb campaign")
+		}
+	} else if len(req.Creatives) == 0 {
 		return fmt.Errorf("creatives must contain at least one creative")
 	}
 

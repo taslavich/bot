@@ -358,6 +358,10 @@ func campaignText(req CampaignModerationRequest) string {
 	line(&sb, "format", req.FormatType)
 	line(&sb, "traffic_type", req.TrafficType)
 	line(&sb, "campaign_name", req.CampaignName)
+	if req.RTB {
+		line(&sb, "rtb", "true")
+		line(&sb, "dsp_link", req.DSPLink)
+	}
 
 	switch format {
 	case "banner":
@@ -376,7 +380,11 @@ func campaignText(req CampaignModerationRequest) string {
 
 	sb.WriteString("\n<b>Креативы</b>\n")
 	if len(req.Creatives) == 0 {
-		sb.WriteString("— нет креативов в payload\n")
+		if req.RTB {
+			sb.WriteString("— RTB: креатив приходит от внешнего bidder\n")
+		} else {
+			sb.WriteString("— нет креативов в payload\n")
+		}
 	}
 	for i, cr := range req.Creatives {
 		sb.WriteString("\n<b>Креатив #" + strconv.Itoa(i+1) + "</b>\n")
