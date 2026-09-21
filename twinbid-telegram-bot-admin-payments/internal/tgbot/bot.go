@@ -48,7 +48,14 @@ func New(cfg *config.Config, backendClient *backend.Client, modes *ModeStore) (*
 }
 
 func (b *Bot) StartPolling(ctx context.Context) error {
-	log.Printf("telegram bot started as @%s", b.api.Self.Username)
+	// Telegram does not allow getUpdates while a webhook is active.
+	// Explicitly switch this bot token to polling mode on every start and keep
+	// pending updates so messages received during a restart are not lost.
+	if err := b.api.DeleteWebhook(ctx, false); err != nil {
+		return fmt.Errorf("switch telegram bot to polling mode: %w", err)
+	}
+
+	log.Printf("telegram webhook disabled; polling mode enabled for @%s", b.api.Self.Username)
 	offset := 0
 	for {
 		select {

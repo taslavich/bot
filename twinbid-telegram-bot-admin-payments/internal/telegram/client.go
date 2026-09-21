@@ -95,6 +95,14 @@ func (c *Client) GetMe(ctx context.Context) (User, error) {
 	return requestJSON[User](ctx, c, http.MethodGet, "/getMe", nil)
 }
 
+func (c *Client) DeleteWebhook(ctx context.Context, dropPendingUpdates bool) error {
+	payload := map[string]any{
+		"drop_pending_updates": dropPendingUpdates,
+	}
+	_, err := requestJSON[bool](ctx, c, http.MethodPost, "/deleteWebhook", payload)
+	return err
+}
+
 func (c *Client) GetUpdates(ctx context.Context, offset int, timeout int) ([]Update, error) {
 	q := url.Values{}
 	if offset > 0 {

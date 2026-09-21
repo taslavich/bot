@@ -37,3 +37,34 @@ func TestAnswerCallbackQueryWithoutTextDoesNotRequestNotification(t *testing.T) 
 		t.Fatalf("empty callback answer must not contain show_alert: %#v", payload)
 	}
 }
+
+func TestDeleteWebhookKeepsPendingUpdates(t *testing.T) {
+	var payload map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method=%q", r.Method)
+		}
+		if r.URL.Path != "/deleteWebhook" {
+			t.Fatalf("path=%q", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+
+	client := &Client{baseURL: server.URL, http: server.Client()}
+	if err := client.DeleteWebhook(context.Background(), false); err != nil {
+		t.Fatalf("DeleteWebhook: %v", err)
+	}
+
+	got, ok := payload["drop_pending_updates"]
+	if !ok {
+		t.Fatalf("drop_pending_updates is missing: %#v", payload)
+	}
+	if got != false {
+		t.Fatalf("drop_pending_updates=%v, want false", got)
+	}
+}
