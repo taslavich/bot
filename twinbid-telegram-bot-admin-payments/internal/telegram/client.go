@@ -109,6 +109,11 @@ func (c *Client) GetUpdates(ctx context.Context, offset int, timeout int) ([]Upd
 		q.Set("offset", strconv.Itoa(offset))
 	}
 	q.Set("timeout", strconv.Itoa(timeout))
+	// Telegram remembers the previous allowed_updates setting. Explicitly request
+	// the update types this bot handles so a former webhook configuration cannot
+	// silently suppress inline-keyboard callback queries after switching back to
+	// long polling.
+	q.Set("allowed_updates", `["message","callback_query"]`)
 	return requestJSON[[]Update](ctx, c, http.MethodGet, "/getUpdates?"+q.Encode(), nil)
 }
 

@@ -68,3 +68,28 @@ func TestDeleteWebhookKeepsPendingUpdates(t *testing.T) {
 		t.Fatalf("drop_pending_updates=%v, want false", got)
 	}
 }
+
+func TestGetUpdatesExplicitlyRequestsCallbackQueries(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Fatalf("method=%q", r.Method)
+		}
+		if r.URL.Path != "/getUpdates" {
+			t.Fatalf("path=%q", r.URL.Path)
+		}
+		if got := r.URL.Query().Get("allowed_updates"); got != `["message","callback_query"]` {
+			t.Fatalf("allowed_updates=%q", got)
+		}
+		if got := r.URL.Query().Get("timeout"); got != "30" {
+			t.Fatalf("timeout=%q", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":[]}`))
+	}))
+	defer server.Close()
+
+	client := &Client{baseURL: server.URL, http: server.Client()}
+	if _, err := client.GetUpdates(context.Background(), 0, 30); err != nil {
+		t.Fatalf("GetUpdates: %v", err)
+	}
+}
