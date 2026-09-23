@@ -66,6 +66,16 @@ func (b *Bot) StartPolling(ctx context.Context) error {
 
 		updates, err := b.api.GetUpdates(ctx, offset, 30)
 		if err != nil {
+			if telegram.IsWebhookActiveConflict(err) {
+				log.Printf("telegram webhook became active while polling; deleting it and recovering polling mode")
+				if deleteErr := b.api.DeleteWebhook(ctx, false); deleteErr == nil {
+					log.Printf("telegram webhook disabled again; polling mode recovered for @%s", b.api.Self.Username)
+					continue
+				} else {
+					log.Printf("delete webhook after polling conflict failed: %v", deleteErr)
+				}
+			}
+
 			log.Printf("get updates failed: %v", err)
 			select {
 			case <-ctx.Done():

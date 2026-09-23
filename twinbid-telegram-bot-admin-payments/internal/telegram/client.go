@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -72,7 +73,28 @@ type InlineKeyboardButton struct {
 type apiResponse[T any] struct {
 	OK          bool   `json:"ok"`
 	Result      T      `json:"result"`
+	ErrorCode   int    `json:"error_code"`
 	Description string `json:"description"`
+}
+
+type APIError struct {
+	StatusCode  int
+	ErrorCode   int
+	Description string
+	Body        string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("telegram status=%d description=%s body=%s", e.StatusCode, e.Description, e.Body)
+}
+
+func IsWebhookActiveConflict(err error) bool {
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusConflict {
+		return false
+	}
+	description := strings.ToLower(apiErr.Description)
+	return strings.Contains(description, "getupdates") && strings.Contains(description, "webhook is active")
 }
 
 func New(token string) (*Client, error) {
@@ -256,7 +278,12 @@ func requestJSON[T any](ctx context.Context, c *Client, method, path string, pay
 		return zero, fmt.Errorf("telegram status=%d body=%s", resp.StatusCode, string(b))
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 || !env.OK {
-		return zero, fmt.Errorf("telegram status=%d description=%s body=%s", resp.StatusCode, env.Description, string(b))
+		return zero, &APIError{
+			StatusCode:  resp.StatusCode,
+			ErrorCode:   env.ErrorCode,
+			Description: env.Description,
+			Body:        string(b),
+		}
 	}
 	return env.Result, nil
 }
