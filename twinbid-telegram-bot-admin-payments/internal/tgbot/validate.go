@@ -34,10 +34,10 @@ func ValidateCampaignModeration(req CampaignModerationRequest) error {
 
 	format := normalizeFormat(req.FormatType)
 	switch format {
-	case "popunder", "banner", "native", "push":
+	case "popunder", "banner", "native", "push", "video":
 		// supported
 	default:
-		return fmt.Errorf("unsupported format_type %q; allowed: popunder, banner, native, push", req.FormatType)
+		return fmt.Errorf("unsupported format_type %q; allowed: popunder, banner, native, push, video", req.FormatType)
 	}
 
 	if format == "banner" && strings.TrimSpace(bannerSize(req)) == "" {
@@ -54,6 +54,19 @@ func ValidateCampaignModeration(req CampaignModerationRequest) error {
 		}
 		switch format {
 		case "banner":
+		case "video":
+			if strings.TrimSpace(imageRef(cr)) == "" {
+				return fmt.Errorf("%s.image_file or image_url is required for video format", prefix)
+			}
+			videoFormat := normalizeVideoFormat(effectiveVideoFormat(req, cr))
+			if videoFormat == "" {
+				return fmt.Errorf("%s.video_format is required for video format", prefix)
+			}
+			switch videoFormat {
+			case "instream", "outstream", "video_popup":
+			default:
+				return fmt.Errorf("%s.video_format %q is unsupported; allowed: instream, outstream, video_popup", prefix, effectiveVideoFormat(req, cr))
+			}
 		case "native", "push":
 			if strings.TrimSpace(imageRef(cr)) == "" {
 				return fmt.Errorf("%s.image_file or image_url is required for %s format", prefix, format)

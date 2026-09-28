@@ -13,7 +13,7 @@ POST /internal/campaigns/moderation
 X-Bot-Secret: <INTERNAL_SECRET>
 ```
 
-Бот поддерживает 4 рекламных формата:
+Бот поддерживает 5 рекламных форматов:
 
 1. `popunder`
    - `format_type`
@@ -42,7 +42,17 @@ X-Bot-Secret: <INTERNAL_SECRET>
    - `brand_name`
    - несколько креативов: `creative_name`, `url`, `macros`, `image_file` / `image_url`, `title`, `description`
 
-Общие поля пользователя для всех 4 форматов кампаний:
+5. `video`
+   - `format_type=video`
+   - `traffic_type`
+   - `campaign_name`
+   - для cabinet-креатива: `creative_name`, `adm`, `macros`, `image_file` / `image_url`, `video_format`
+   - `video_format`: `instream`, `outstream`, `video_popup`; legacy `outstream_standard` / `outstream_slider` читаются как `outstream`
+   - `video_metadata` принимается и отображается (duration / dimensions / codec / file_size, если они переданы)
+   - MP4 отправляется в Telegram через `sendVideo`, а не через `sendPhoto`
+   - для RTB video креативы могут отсутствовать; достаточно `rtb=true` и `dsp_link`
+
+Общие поля пользователя для всех 5 форматов кампаний:
 
 ```text
 user_id      — обязательное поле
@@ -50,7 +60,7 @@ user_email   — обязательное поле, также поддержи�
 user_telegram — необязательное поле, также поддерживается alias telegram
 ```
 
-В Telegram-сообщении эти поля выводятся отдельным блоком `Пользователь` для любого формата: popunder, banner, native, push.
+В Telegram-сообщении эти поля выводятся отдельным блоком `Пользователь` для любого формата: popunder, banner, native, push, video.
 
 Кнопки кампании вызывают защищённый endpoint backend:
 
@@ -350,12 +360,14 @@ func NewBotClient(baseURL, internalSecret string) *BotClient {
 }
 
 type BotCreative struct {
-	CreativeName string `json:"creative_name"`
-	URL          string `json:"url"`
-	Macros       string `json:"macros,omitempty"`
-	ImageURL     string `json:"image_url,omitempty"`
-	Title        string `json:"title,omitempty"`
-	Description  string `json:"description,omitempty"`
+	CreativeName  string `json:"creative_name"`
+	URL           string `json:"url"`
+	Macros        string `json:"macros,omitempty"`
+	ImageURL      string `json:"image_url,omitempty"`
+	Title         string `json:"title,omitempty"`
+	Description   string `json:"description,omitempty"`
+	VideoFormat   string `json:"video_format,omitempty"`
+	VideoMetadata any    `json:"video_metadata,omitempty"`
 }
 
 type BotCampaignModerationRequest struct {

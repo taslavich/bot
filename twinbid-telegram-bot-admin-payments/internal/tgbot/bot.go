@@ -152,22 +152,31 @@ func (b *Bot) sendCampaignToChat(ctx context.Context, chatID int64, req Campaign
 		}
 	}
 
+	format := normalizeFormat(req.FormatType)
 	for _, cr := range req.Creatives {
-		caption := creativePhotoCaption(req, cr)
+		caption := creativeMediaCaption(req, cr)
 
 		if cr.ImageFile != nil {
-			if _, err := b.api.SendPhotoFile(ctx, chatID, cr.ImageFile.Filename, cr.ImageFile.ContentType, cr.ImageFile.Data, caption, telegram.ModeHTML); err != nil {
+			if format == "video" {
+				if _, err := b.api.SendVideoFile(ctx, chatID, cr.ImageFile.Filename, cr.ImageFile.ContentType, cr.ImageFile.Data, caption, telegram.ModeHTML); err != nil {
+					log.Printf("send creative uploaded video failed: %v", err)
+				}
+			} else if _, err := b.api.SendPhotoFile(ctx, chatID, cr.ImageFile.Filename, cr.ImageFile.ContentType, cr.ImageFile.Data, caption, telegram.ModeHTML); err != nil {
 				log.Printf("send creative uploaded photo failed: %v", err)
 			}
 			continue
 		}
 
-		photoURL := creativePhotoRef(cr)
-		if photoURL == "" {
+		mediaURL := creativeMediaRef(cr)
+		if mediaURL == "" {
 			continue
 		}
 
-		if err := b.sendPhotoFromURL(ctx, chatID, photoURL, caption); err != nil {
+		if format == "video" {
+			if err := b.sendVideoFromURL(ctx, chatID, mediaURL, caption); err != nil {
+				log.Printf("download/send creative video failed: %v", err)
+			}
+		} else if err := b.sendPhotoFromURL(ctx, chatID, mediaURL, caption); err != nil {
 			log.Printf("download/send creative photo failed: %v", err)
 		}
 	}
@@ -385,6 +394,10 @@ func campaignText(req CampaignModerationRequest) string {
 		line(&sb, "banner_size", bannerSize(req))
 	case "native", "push":
 		line(&sb, "brand_name", req.BrandName)
+	case "video":
+		if strings.TrimSpace(req.VideoFormat) != "" {
+			line(&sb, "video_format", normalizeVideoFormat(req.VideoFormat))
+		}
 	}
 	if strings.TrimSpace(req.QualityType) != "" {
 		line(&sb, "quality_type", req.QualityType)
@@ -405,6 +418,9 @@ func campaignText(req CampaignModerationRequest) string {
 	}
 	for i, cr := range req.Creatives {
 		sb.WriteString("\n<b>Креатив #" + strconv.Itoa(i+1) + "</b>\n")
+		if format == "video" && strings.TrimSpace(cr.VideoFormat) == "" {
+			cr.VideoFormat = req.VideoFormat
+		}
 		creativeLines(&sb, format, cr)
 	}
 	return sb.String()
@@ -417,11 +433,18 @@ func creativeText(cr CreativePayload) string {
 	return sb.String()
 }
 
-func creativePhotoCaption(req CampaignModerationRequest, cr CreativePayload) string {
+func creativeMediaCaption(req CampaignModerationRequest, cr CreativePayload) string {
 	var sb strings.Builder
-	sb.WriteString("<b>Картинка креатива</b>\n")
+	if normalizeFormat(req.FormatType) == "video" {
+		sb.WriteString("<b>Видео креатива</b>\n")
+	} else {
+		sb.WriteString("<b>Картинка креатива</b>\n")
+	}
 	line(&sb, "campaign_name", req.CampaignName)
 	line(&sb, "creative_name", cr.CreativeName)
+	if normalizeFormat(req.FormatType) == "video" {
+		line(&sb, "video_format", normalizeVideoFormat(effectiveVideoFormat(req, cr)))
+	}
 	return sb.String()
 }
 
@@ -435,6 +458,10 @@ func creativeLines(sb *strings.Builder, format string, cr CreativePayload) {
 		// Для popunder нужны только имя креатива, adm и макросы.
 	case "banner":
 		line(sb, "image_file", imageRef(cr))
+	case "video":
+		line(sb, "video_file", imageRef(cr))
+		line(sb, "video_format", normalizeVideoFormat(cr.VideoFormat))
+		videoMetadataLines(sb, cr.VideoMetadata)
 	case "native", "push":
 		line(sb, "image_file", imageRef(cr))
 		line(sb, "title", cr.Title)
@@ -469,6 +496,8 @@ func normalizeFormat(raw string) string {
 		return "native"
 	case "push", "inpagepush", "inpage", "пуш":
 		return "push"
+	case "video", "vid", "видео":
+		return "video"
 	default:
 		return s
 	}
@@ -488,6 +517,48 @@ func creativeADM(cr CreativePayload) string {
 	return cr.ADM
 }
 
+func effectiveVideoFormat(req CampaignModerationRequest, cr CreativePayload) string {
+	if strings.TrimSpace(cr.VideoFormat) != "" {
+		return cr.VideoFormat
+	}
+	return req.VideoFormat
+}
+
+func normalizeVideoFormat(raw string) string {
+	s := strings.ToLower(strings.TrimSpace(raw))
+	s = strings.ReplaceAll(s, "-", "_")
+	s = strings.ReplaceAll(s, " ", "_")
+	s = strings.Trim(s, "_")
+	switch s {
+	case "instream", "in_stream":
+		return "instream"
+	case "outstream", "out_stream", "outstream_standard", "outstream_slider":
+		return "outstream"
+	case "video_popup", "videopopup", "popup", "video_pop_up":
+		return "video_popup"
+	default:
+		return s
+	}
+}
+
+func videoMetadataLines(sb *strings.Builder, metadata *VideoCreativeMetadata) {
+	if metadata == nil {
+		return
+	}
+	if metadata.Duration > 0 {
+		line(sb, "video_duration", strconv.Itoa(metadata.Duration)+"s")
+	}
+	if metadata.Width > 0 && metadata.Height > 0 {
+		line(sb, "video_dimensions", strconv.Itoa(metadata.Width)+"x"+strconv.Itoa(metadata.Height))
+	}
+	if strings.TrimSpace(metadata.Codec) != "" {
+		line(sb, "video_codec", metadata.Codec)
+	}
+	if metadata.FileSize > 0 {
+		line(sb, "video_file_size", strconv.FormatInt(metadata.FileSize, 10))
+	}
+}
+
 func imageRef(cr CreativePayload) string {
 	if cr.ImageFile != nil && strings.TrimSpace(cr.ImageFile.Filename) != "" {
 		return cr.ImageFile.Filename
@@ -501,7 +572,7 @@ func imageRef(cr CreativePayload) string {
 	return cr.Name
 }
 
-func creativePhotoRef(cr CreativePayload) string {
+func creativeMediaRef(cr CreativePayload) string {
 	v := strings.TrimSpace(cr.ImageURL)
 	if v == "" {
 		v = strings.TrimSpace(cr.PresignedS3URL)
@@ -547,6 +618,62 @@ func (b *Bot) sendPhotoFromURL(ctx context.Context, chatID int64, imageURL strin
 	filename := imageFilenameFromURL(imageURL, contentType)
 	_, err = b.api.SendPhotoFile(ctx, chatID, filename, contentType, data, caption, telegram.ModeHTML)
 	return err
+}
+
+func (b *Bot) sendVideoFromURL(ctx context.Context, chatID int64, videoURL string, caption string) error {
+	httpClient := &http.Client{Timeout: 30 * time.Second}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, videoURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("download video status=%d", resp.StatusCode)
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "video/mp4"
+	}
+
+	const maxVideoBytes = 15 * 1024 * 1024
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxVideoBytes+1))
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("downloaded video is empty")
+	}
+	if len(data) > maxVideoBytes {
+		return fmt.Errorf("downloaded video exceeds %d bytes", maxVideoBytes)
+	}
+
+	filename := videoFilenameFromURL(videoURL, contentType)
+	_, err = b.api.SendVideoFile(ctx, chatID, filename, contentType, data, caption, telegram.ModeHTML)
+	return err
+}
+
+func videoFilenameFromURL(rawURL string, contentType string) string {
+	u, err := url.Parse(rawURL)
+	if err == nil {
+		name := path.Base(u.Path)
+		if name != "." && name != "/" && name != "" && strings.EqualFold(path.Ext(name), ".mp4") {
+			return name
+		}
+	}
+
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil && mediaType == "video/mp4" {
+		return "creative.mp4"
+	}
+	return "creative-video.mp4"
 }
 
 func imageFilenameFromURL(rawURL string, contentType string) string {

@@ -1,8 +1,10 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -127,5 +129,50 @@ func TestOtherConflictIsNotWebhookActiveConflict(t *testing.T) {
 	}
 	if IsWebhookActiveConflict(err) {
 		t.Fatalf("IsWebhookActiveConflict(%v) = true, want false", err)
+	}
+}
+
+func TestSendVideoFileUsesTelegramVideoEndpoint(t *testing.T) {
+	videoBytes := []byte("fake-mp4-data")
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Fatalf("method=%q", r.Method)
+		}
+		if r.URL.Path != "/sendVideo" {
+			t.Fatalf("path=%q", r.URL.Path)
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		if got := r.FormValue("chat_id"); got != "123" {
+			t.Fatalf("chat_id=%q", got)
+		}
+		if got := r.FormValue("supports_streaming"); got != "true" {
+			t.Fatalf("supports_streaming=%q", got)
+		}
+		file, header, err := r.FormFile("video")
+		if err != nil {
+			t.Fatalf("FormFile(video): %v", err)
+		}
+		defer file.Close()
+		if header.Filename != "creative.mp4" {
+			t.Fatalf("filename=%q", header.Filename)
+		}
+		got, err := io.ReadAll(file)
+		if err != nil {
+			t.Fatalf("ReadAll: %v", err)
+		}
+		if !bytes.Equal(got, videoBytes) {
+			t.Fatalf("video bytes=%q", got)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":1,"chat":{"id":123}}}`))
+	}))
+	defer server.Close()
+
+	client := &Client{baseURL: server.URL, http: server.Client()}
+	if _, err := client.SendVideoFile(context.Background(), 123, "creative.mp4", "video/mp4", videoBytes, "caption", ModeHTML); err != nil {
+		t.Fatalf("SendVideoFile: %v", err)
 	}
 }

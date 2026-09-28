@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -171,7 +172,21 @@ func (c *Client) SendPhotoFile(ctx context.Context, chatID int64, filename strin
 	if filename == "" {
 		filename = "creative-image"
 	}
+	return c.sendMediaFile(ctx, chatID, "/sendPhoto", "photo", filename, contentType, data, caption, parseMode, false)
+}
 
+func (c *Client) SendVideoFile(ctx context.Context, chatID int64, filename string, contentType string, data []byte, caption string, parseMode string) (Message, error) {
+	if filename == "" {
+		filename = "creative-video.mp4"
+	}
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil || mediaType == "" || mediaType == "application/octet-stream" {
+		contentType = "video/mp4"
+	}
+	return c.sendMediaFile(ctx, chatID, "/sendVideo", "video", filename, contentType, data, caption, parseMode, true)
+}
+
+func (c *Client) sendMediaFile(ctx context.Context, chatID int64, endpoint string, fieldName string, filename string, contentType string, data []byte, caption string, parseMode string, supportsStreaming bool) (Message, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	_ = writer.WriteField("chat_id", strconv.FormatInt(chatID, 10))
@@ -181,9 +196,12 @@ func (c *Client) SendPhotoFile(ctx context.Context, chatID int64, filename strin
 	if parseMode != "" {
 		_ = writer.WriteField("parse_mode", parseMode)
 	}
+	if supportsStreaming {
+		_ = writer.WriteField("supports_streaming", "true")
+	}
 
 	partHeader := make(textproto.MIMEHeader)
-	partHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="photo"; filename="%s"`, escapeQuotes(filename)))
+	partHeader.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`, fieldName, escapeQuotes(filename)))
 	if contentType != "" {
 		partHeader.Set("Content-Type", contentType)
 	} else {
@@ -200,7 +218,7 @@ func (c *Client) SendPhotoFile(ctx context.Context, chatID int64, filename strin
 		return Message{}, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/sendPhoto", &body)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+endpoint, &body)
 	if err != nil {
 		return Message{}, err
 	}
