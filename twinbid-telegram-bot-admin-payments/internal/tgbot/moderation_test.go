@@ -93,3 +93,12 @@ func TestValidateCampaignModerationRTBVideoDoesNotRequireCreative(t *testing.T) 
 		t.Fatalf("ValidateCampaignModeration: %v", err)
 	}
 }
+
+func TestCampaignModerationSuccessTextUsesBackendStatus(t *testing.T) {
+	if got := campaignModerationSuccessText(campaignApproveDecision, "active"); got != "Кампания одобрена. Текущий статус: active" {
+		t.Fatalf("approve text = %q", got)
+	}
+	if got := campaignModerationSuccessText(campaignRejectDecision, "draft"); got != "Кампания отклонена. Текущий статус: draft" {
+		t.Fatalf("reject text = %q", got)
+	}
+}

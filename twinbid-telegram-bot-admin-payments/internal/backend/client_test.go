@@ -27,13 +27,17 @@ func TestModerateCampaignUsesInternalEndpointAndSecret(t *testing.T) {
 		}
 		gotDecision = body["decision"]
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"success":true,"errorMsg":"","data":{}}`))
+		_, _ = w.Write([]byte(`{"success":true,"errorMsg":"","data":{"status":"active"}}`))
 	}))
 	defer server.Close()
 
 	client := NewClient(&config.Config{BackendBaseURL: server.URL, InternalSecret: "shared-secret"}, memoryTokenStore{})
-	if err := client.ModerateCampaign(context.Background(), "campaign-1", "approve"); err != nil {
+	result, err := client.ModerateCampaign(context.Background(), "campaign-1", "approve")
+	if err != nil {
 		t.Fatalf("ModerateCampaign() error = %v", err)
+	}
+	if result.Status != "active" {
+		t.Fatalf("status = %q, want active", result.Status)
 	}
 
 	if gotPath != "/api/internal/campaigns/campaign-1/moderation" {

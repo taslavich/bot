@@ -240,11 +240,13 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 	var okText string
 	switch entity + ":" + action {
 	case "cmp:ok":
-		err = b.backend.ModerateCampaign(ctx, id, campaignApproveDecision)
-		okText = "Кампания одобрена, статус: " + campaignApproveStatus
+		var result backend.CampaignModerationResult
+		result, err = b.backend.ModerateCampaign(ctx, id, campaignApproveDecision)
+		okText = campaignModerationSuccessText(campaignApproveDecision, result.Status)
 	case "cmp:no":
-		err = b.backend.ModerateCampaign(ctx, id, campaignRejectDecision)
-		okText = "Кампания отклонена, статус: " + campaignRejectStatus
+		var result backend.CampaignModerationResult
+		result, err = b.backend.ModerateCampaign(ctx, id, campaignRejectDecision)
+		okText = campaignModerationSuccessText(campaignRejectDecision, result.Status)
 	case "pay:ok":
 		actionData, found := b.paymentActions.Get(id)
 		if !found {
@@ -300,6 +302,21 @@ func (b *Bot) handleCallback(ctx context.Context, q *telegram.CallbackQuery) {
 	b.answerCallback(q.ID, "Готово", false)
 	b.removeButtons(q.Message.Chat.ID, q.Message.MessageID)
 	b.reply(q.Message.Chat.ID, "✅ "+html.EscapeString(okText)+"\nID: <code>"+html.EscapeString(id)+"</code>", nil)
+}
+
+func campaignModerationSuccessText(decision, status string) string {
+	status = strings.TrimSpace(status)
+	if status == "" {
+		if decision == campaignRejectDecision {
+			status = campaignRejectStatus
+		} else {
+			status = campaignApproveStatus
+		}
+	}
+	if decision == campaignRejectDecision {
+		return "Кампания отклонена. Текущий статус: " + status
+	}
+	return "Кампания одобрена. Текущий статус: " + status
 }
 
 func moderationConflictMessage(err error) (string, bool) {

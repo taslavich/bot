@@ -46,6 +46,10 @@ type APIError struct {
 	Message string
 }
 
+type CampaignModerationResult struct {
+	Status string `json:"status"`
+}
+
 func (e *APIError) Error() string {
 	return fmt.Sprintf("backend status=%d error=%s", e.Status, e.Message)
 }
@@ -77,21 +81,25 @@ func (c *Client) EnsureLoggedIn(ctx context.Context) error {
 	return c.loginLocked(ctx)
 }
 
-func (c *Client) ModerateCampaign(ctx context.Context, campaignID, decision string) error {
+func (c *Client) ModerateCampaign(ctx context.Context, campaignID, decision string) (CampaignModerationResult, error) {
 	campaignID = strings.TrimSpace(campaignID)
 	decision = strings.TrimSpace(decision)
 	if campaignID == "" {
-		return fmt.Errorf("campaign_id is required")
+		return CampaignModerationResult{}, fmt.Errorf("campaign_id is required")
 	}
 	if decision != "approve" && decision != "reject" {
-		return fmt.Errorf("invalid moderation decision %q", decision)
+		return CampaignModerationResult{}, fmt.Errorf("invalid moderation decision %q", decision)
 	}
 
 	raw, err := json.Marshal(map[string]string{"decision": decision})
 	if err != nil {
-		return err
+		return CampaignModerationResult{}, err
 	}
-	return c.doInternal(ctx, http.MethodPost, "/api/internal/campaigns/"+campaignID+"/moderation", raw, nil)
+	var result CampaignModerationResult
+	if err := c.doInternal(ctx, http.MethodPost, "/api/internal/campaigns/"+campaignID+"/moderation", raw, &result); err != nil {
+		return CampaignModerationResult{}, err
+	}
+	return result, nil
 }
 
 func (c *Client) ApproveTransaction(ctx context.Context, userID, id string) error {
